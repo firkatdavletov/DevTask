@@ -1,4 +1,4 @@
-"""Check-repair integration tests for the current APP/SS workflow. No remote services."""
+"""Check-repair integration tests for the current workflow. No remote services."""
 import json
 import os
 from pathlib import Path
@@ -52,6 +52,13 @@ if "app-server" in sys.argv:
     sys.exit(0)
 result_path = Path(sys.argv[sys.argv.index("-o") + 1])
 schema = json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text())
+if "subject" in schema["properties"]:
+    sys.stdin.read()
+    result_path.write_text(json.dumps({"status": "generated", "subject": "Исправил имя пользователя"}))
+    print(json.dumps({"type": "thread.started", "thread_id": "commit-session"}))
+    print(json.dumps({"type": "turn.started"}))
+    print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 20, "output_tokens": 10, "cached_input_tokens": 0}}))
+    sys.exit(0)
 is_review = "findings" in schema["properties"]
 is_planning = "plan" in schema["properties"]
 context_path = result_path.parent / "check-failure.json"
@@ -277,7 +284,7 @@ class CheckRepairTest(unittest.TestCase):
                     "allow_paths": ["app/**"], "deny_paths": ["**/*.jks"]}
         self.write_config()
         self.card = self.root / "task.md"
-        self.card.write_text("---\nissue: APP-1\nbase: develop\ntitle: Test task\ncomplexity: trivial\n---\nImplement the requested feature.\n")
+        self.card.write_text("---\nissue: KRMA-1\nbase: develop\ntitle: Test task\ncomplexity: trivial\n---\nImplement the requested feature.\n")
 
     def step(self, name):
         return {"name": name, "argv": [sys.executable, str(self.check_script), name]}
@@ -301,7 +308,7 @@ class CheckRepairTest(unittest.TestCase):
         return result
 
     def state_path(self):
-        return next((self.root / "runs").glob("*/APP-1/state.json"))
+        return next((self.root / "runs").glob("*/KRMA-1/state.json"))
 
     def state(self):
         return json.loads(self.state_path().read_text())
@@ -537,7 +544,7 @@ class CheckRepairTest(unittest.TestCase):
         self.run_task()
         state = self.state()
         self.assertEqual(state["phase"], "published")
-        self.assertEqual(self.g(self.root, "--git-dir", str(self.remote), "rev-parse", "feature/APP-1"), state["commit_sha"])
+        self.assertEqual(self.g(self.root, "--git-dir", str(self.remote), "rev-parse", "feature/KRMA-1"), state["commit_sha"])
         self.run_task()
         self.assertEqual(len(self.calls()), 2)
         self.assertEqual(len(json.loads((self.root / "github-prs.json").read_text())), 1)

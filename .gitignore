@@ -2,3 +2,5 @@ config.json
 android-task-runs
 android-tasks
 .idea
+__pycache__/
+*.pyc

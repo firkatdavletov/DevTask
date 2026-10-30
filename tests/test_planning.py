@@ -23,7 +23,7 @@ class PlanningWorkflowTest(unittest.TestCase):
         self.env.update(INITIAL_GOOD="1", USAGE_MODE="normal")
 
     def complexity(self, value):
-        self.card.write_text("---\nissue: APP-1\nbase: develop\ntitle: Test task\ncomplexity: "
+        self.card.write_text("---\nissue: KRMA-1\nbase: develop\ntitle: Test task\ncomplexity: "
                              + value + "\n---\nImplement the requested feature.\n")
 
     def stages(self):
@@ -222,7 +222,7 @@ class PlanningWorkflowTest(unittest.TestCase):
         calls = len(self.calls())
         self.run_task("run", "--local-only")
         self.assertEqual(len(self.calls()), calls)
-        self.assertEqual(self.state()["workflow_version"], 3)
+        self.assertEqual(self.state()["workflow_version"], 4)
         self.assertEqual(self.state()["reviewed_tree"], accepted)
         self.assertEqual(self.state()["review_fix_attempts"], 2)
         self.assertEqual(self.state()["check_fix_attempts"], 1)

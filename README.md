@@ -185,7 +185,36 @@ PR; они не заменяют результаты обязательных c
 `run` с той же карточкой и конфигурацией: агент получит новый контракт результата
 в существующем worktree. Редактировать историю и удалять worktree не требуется.
 
-Тесты актуального workflow используют локальный Git и подставные Codex/gh:
+## Структура кода
+
+Исполняемый файл `dev-task` передаёт управление в `dev_task.cli.main(argv=None)`.
+Пакет лежит рядом со скриптом и не требует установки: запуск по абсолютному пути
+работает из любого рабочего каталога.
+
+| Модули пакета `dev_task` | Ответственность |
+| --- | --- |
+| `cli`, `workflow` | Аргументы и коды выхода; последовательность этапов и продолжение PR |
+| `card`, `config`, `state` | Карточка; конфигурация и профили; миграции и история циклов |
+| `planning`, `coding`, `checks`, `review`, `publishing` | Этапы workflow и принадлежащие им циклы исправлений |
+| `plan_context`, `contracts` | Целостность плана и общий контекст; схемы, валидация и правила результатов |
+| `codex`, `sessions` | Запуск Codex; учёт жизненного цикла сессии |
+| `reports`, `usage` | Восстановление и формирование отчётов; токены и лимиты подписки |
+| `repository`, `github`, `processes` | Git/worktree и снимки; GitHub CLI и PR; выполнение подпроцессов |
+| `storage`, `errors`, `console` | Файловое хранение; исключения и проверка условий; вывод |
+
+Зависимости направлены от `cli` к `workflow`, затем к этапам и инфраструктуре.
+Этап review использует checks, checks — coding. Запуск модели использует цепочку
+`codex → sessions → reports → usage`. Общие проверки Git-снимка находятся в
+`repository`, проверка принятого плана — в `plan_context`, а правила результатов
+review — в `contracts`. Благодаря этому публикация не импортирует этапы checks
+или review. Нижние модули не импортируют `workflow` или `cli`.
+
+Все импорты внутри пакета явные и находятся на уровне модуля. `__init__.py` не
+реэкспортирует функции и не запускает код. Ограничения зависимостей и отсутствие
+циклов проверяет `tests/test_architecture.py`.
+
+Тесты актуального workflow используют локальный Git и подставные Codex/gh
+с карточками KRMA/AAS:
 
 ```bash
 python3 -m unittest discover -s tests -p test_check_repairs.py -v
@@ -195,6 +224,9 @@ python3 -m unittest discover -s tests -p test_planning.py -v
 python3 -m unittest discover -s tests -p test_commit_messages.py -v
 python3 -m unittest discover -s tests -p test_continue_pr.py -v
 python3 -m unittest discover -s tests -p test_verification_limits.py -v
+python3 -m unittest discover -s tests -p test_check_resume.py -v
+python3 -m unittest discover -s tests -p test_architecture.py -v
+python3 -m unittest discover -s tests -p test_cli.py -v
 ```
 
 Исторический `test_workflow.py` относится к другой версии скрипта с иным форматом

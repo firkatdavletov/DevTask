@@ -15,7 +15,6 @@ class CheckResumeTest(unittest.TestCase):
 
     def setUp(self):
         repairs.CheckRepairTest.setUp(self)
-        self.card.write_text(self.card.read_text().replace("APP-1", "KRMA-1"))
         self.cfg["max_check_fix_iterations"] = 1
         self.write_config()
         self.env.update(INITIAL_GOOD="1", FIX_MODE="blocked", TEST_SDK_READY="0")

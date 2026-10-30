@@ -1,8 +1,9 @@
 """Agent verification limits never replace the controller's mandatory checks."""
 import json
-import runpy
 import sys
 import unittest
+
+from dev_task.state import migrate_state
 
 import test_check_repairs as repairs
 from test_commit_messages import COMMIT_CODEX
@@ -10,10 +11,9 @@ from test_commit_messages import COMMIT_CODEX
 
 class LegacyResultTest(unittest.TestCase):
     def test_missing_limits_do_not_reclassify_saved_blockers(self):
-        module = runpy.run_path(str(repairs.SCRIPT))
         state = {"base_sha": "base", "result": {"status": "implemented",
                  "blockers": ["SocketException: Operation not permitted"]}}
-        module["migrate_state"](state)
+        migrate_state(state)
         self.assertEqual(state["result"]["verification_limits"], [])
         self.assertEqual(state["result"]["blockers"], ["SocketException: Operation not permitted"])
 
@@ -30,7 +30,7 @@ class VerificationLimitsTest(unittest.TestCase):
 
     def setUp(self):
         repairs.CheckRepairTest.setUp(self)
-        self.card.write_text(self.card.read_text().replace("trivial", "simple").replace("APP-1", "KRMA-1"))
+        self.card.write_text(self.card.read_text().replace("trivial", "simple"))
         (self.root / "bin/codex").write_text("#!" + sys.executable + "\n" + COMMIT_CODEX + repairs.FAKE_CODEX)
         self.env["INITIAL_GOOD"] = "1"
         self.limit = "Gradle: FileLockContentionHandler SocketException: Operation not permitted"

@@ -225,8 +225,9 @@ class UsageReportTest(unittest.TestCase):
         self.run_task("report")
         report = self.report()
         self.assertEqual(report["phase"], "published")
-        self.assertEqual(report["total"]["tokens"]["total_tokens"], 175)
-        self.assertEqual(report["total"]["sessions_without_limit_data"], 2)
+        self.assertEqual(report["total"]["tokens"]["total_tokens"], 205)
+        self.assertEqual(report["stages"]["commit_message"]["tokens"]["total_tokens"], 30)
+        self.assertEqual(report["total"]["sessions_without_limit_data"], 3)
         self.assertEqual(self.calls(), before_calls)
         self.assertEqual(self.checks(), before_checks)
         self.assertEqual((self.root / "limit-call-count").read_text(), before_limits)
@@ -237,7 +238,8 @@ class UsageReportTest(unittest.TestCase):
     def test_published_repeat_creates_no_new_usage_or_pr_body_statistics(self):
         self.run_task("run")
         self.run_task("run")
-        self.assertEqual(self.report()["total"]["session_count"], 2)
+        self.assertEqual(self.report()["total"]["session_count"], 3)
+        self.assertEqual(self.report()["stages"]["commit_message"]["session_count"], 1)
         self.assertNotIn("Токены", (self.state_path().parent / "pr-body.md").read_text())
 
     def test_setup_failure_has_no_model_usage(self):

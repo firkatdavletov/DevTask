@@ -23,7 +23,7 @@ class ReviewWorkflowTest(unittest.TestCase):
         self.env["USAGE_MODE"] = "normal"
 
     def complexity(self, value):
-        self.card.write_text("---\nissue: APP-1\nbase: develop\ntitle: Test task\ncomplexity: "
+        self.card.write_text("---\nissue: KRMA-1\nbase: develop\ntitle: Test task\ncomplexity: "
                              + value + "\n---\nImplement the requested feature.\n")
 
     def report(self):
