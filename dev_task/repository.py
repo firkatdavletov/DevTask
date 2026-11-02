@@ -66,6 +66,15 @@ def assert_remote(config):
             "github_repo не совпадает с одним из fetch/push URL Git remote.")
 
 
+def copy_pending_local_files(state, state_path):
+    if state.get("local_files_copied") is not False:
+        return
+    capture(["bash", str(Path(__file__).resolve().with_name("copy-worktree-local.sh")),
+             state["repo"], state["worktree"]], state["repo"])
+    state["local_files_copied"] = True
+    write_json(state_path, state)
+
+
 def prepare(config, card, run_dir, state_path):
     repo, remote = config["repo"], config["remote"]
     require(git(repo, "rev-parse", "--show-toplevel") == str(repo), "config.repo должен быть корнем checkout.")
@@ -79,6 +88,7 @@ def prepare(config, card, run_dir, state_path):
                               ("remote", remote), ("github_repo", config["github_repo"])):
             require(state.get(key) == expected, f"Сохранённая задача имеет другое поле {key}.")
         assert_worktree(state)
+        copy_pending_local_files(state, state_path)
         return state
     branch = "feature/" + card["issue"]
     worktree = config["worktrees_root"] / card["issue"]
@@ -89,8 +99,10 @@ def prepare(config, card, run_dir, state_path):
     worktree.parent.mkdir(parents=True, exist_ok=True)
     git(repo, "worktree", "add", "-b", branch, str(worktree), base_sha)
     state = {"issue": card["issue"], "repo": str(repo), "remote": remote, "github_repo": config["github_repo"],
-             "base": card["base"], "base_sha": base_sha, "branch": branch, "worktree": str(worktree), "phase": "prepared"}
+             "base": card["base"], "base_sha": base_sha, "branch": branch, "worktree": str(worktree), "phase": "prepared",
+             "local_files_copied": False}
     write_json(state_path, state)
+    copy_pending_local_files(state, state_path)
     return state
 
 

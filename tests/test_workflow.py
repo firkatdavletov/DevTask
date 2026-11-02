@@ -215,6 +215,46 @@ class WorkflowTest(unittest.TestCase):
         self.assertEqual(self.g(self.repo, "branch", "--show-current"), "develop")
         self.assertEqual((self.repo / "app/name.txt").read_text(), "old name\n")
 
+    def test_local_files_copy_retries_before_setup_and_preserves_resumed_edits(self):
+        with (self.repo / ".gitignore").open("a") as ignored:
+            ignored.write(".codex/\n.agents/\n")
+        self.g(self.repo, "add", ".gitignore")
+        self.g(self.repo, "commit", "-m", "Ignore local Codex files")
+        self.g(self.repo, "push", "origin", "develop")
+        config = self.repo / ".codex/config.toml"
+        config.parent.mkdir()
+        config.write_text('model = "local"\n')
+        skill = self.repo / ".agents/skills/test skill/.hidden/helper.sh"
+        skill.parent.mkdir(parents=True)
+        (skill.parent.parent / "SKILL.md").write_text("# Personal skill\n")
+        skill.write_text("#!/bin/sh\nexit 0\n")
+        skill.chmod(0o755)
+        self.cfg["setup"] = [{"name": "verify copied files", "argv": [sys.executable, "-c",
+            "from pathlib import Path; "
+            "assert Path('.codex/config.toml').read_text() == 'model = \"local\"\\n'; "
+            "assert Path('.agents/skills/test skill/.hidden/helper.sh').stat().st_mode & 0o111"]}]
+        self.write_config()
+        rsync = self.bin / "rsync"
+        rsync.write_text("#!/bin/sh\nexit 7\n")
+        rsync.chmod(0o755)
+
+        self.run_task(success=False)
+        state = self.state()
+        self.assertFalse(state["local_files_copied"])
+        self.assertFalse(self.calls())
+        self.assertNotIn("setup_completed", state)
+        rsync.unlink()
+
+        self.run_task()
+        self.assertTrue(self.state()["local_files_copied"])
+        worktree = Path(state["worktree"])
+        self.assertEqual((worktree / skill.relative_to(self.repo)).read_text(), skill.read_text())
+        self.assertEqual(self.g(worktree, "status", "--porcelain"), "")
+        copied_config = worktree / ".codex/config.toml"
+        copied_config.write_text('model = "edited in worktree"\n')
+        self.run_task()
+        self.assertEqual(copied_config.read_text(), 'model = "edited in worktree"\n')
+
     def test_subtask_uses_parent_branch(self):
         self.g(self.repo, "switch", "-c", "feature/KRMA-1233")
         (self.repo / "app/parent.txt").write_text("parent\n")
