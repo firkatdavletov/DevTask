@@ -34,7 +34,7 @@ class CliTest(unittest.TestCase):
             with self.subTest(direct=direct):
                 result = self.invoke("--help", direct=direct)
                 self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertIn("{run,publish,report}", result.stdout)
+                self.assertIn("{run,publish,report,review}", result.stdout)
                 self.assertIn("--continue-pr", result.stdout)
                 self.assertIn("--skip-planning", result.stdout)
                 self.assertEqual(result.stderr, "")

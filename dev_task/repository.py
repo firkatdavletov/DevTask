@@ -52,7 +52,7 @@ def assert_worktree(state):
     worktree = Path(state["worktree"])
     require(worktree.is_dir(), "Сохранённый worktree не найден; восстановите его вручную.")
     require(git(worktree, "rev-parse", "--show-toplevel") == str(worktree), "Некорректный worktree.")
-    require(git(worktree, "branch", "--show-current") == state["branch"], "В worktree изменилась рабочая ветка.")
+    require(git(worktree, "branch", "--show-current") == state.get("worktree_branch", state["branch"]), "В worktree изменилась рабочая ветка.")
     expected = state.get("commit_sha") or state.get("cycle_base_sha", state["base_sha"])
     require(git(worktree, "rev-parse", "HEAD") == expected, "HEAD изменился вне dev-task. Проверьте историю вручную.")
     return worktree

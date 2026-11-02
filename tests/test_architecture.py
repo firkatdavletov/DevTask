@@ -37,7 +37,8 @@ ALLOWED_IMPORTS = {
         "plan_context", "planning", "publishing", "reports", "repository", "review",
         "state", "storage",
     },
-    "cli": {"console", "errors", "workflow"},
+    "branch_review": {"codex", "config", "console", "contracts", "errors", "processes", "reports", "repository", "storage"},
+    "cli": {"console", "errors", "workflow", "branch_review"},
 }
 
 

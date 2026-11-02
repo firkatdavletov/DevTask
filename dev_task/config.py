@@ -18,14 +18,14 @@ DEFAULT_PROFILES = {
 }
 
 
-def load_config(path):
+def load_config(path, *, review_only=False):
     config = read_json(path)
     require(isinstance(config, dict), "Конфигурация должна быть JSON-объектом.")
-    for key in ("repo", "github_repo", "worktrees_root", "runs_root"):
+    for key in (("repo", "worktrees_root", "runs_root") if review_only else ("repo", "github_repo", "worktrees_root", "runs_root")):
         require(isinstance(config.get(key), str) and config[key], f"Нужен параметр config.{key}.")
     for key in ("repo", "worktrees_root", "runs_root"):
         config[key] = resolve_path(config[key], path.parent)
-    require(re.fullmatch(r"[A-Za-z0-9.-]+/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", config["github_repo"]),
+    require(review_only or re.fullmatch(r"[A-Za-z0-9.-]+/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", config["github_repo"]),
             "github_repo: HOST/OWNER/REPOSITORY, например github.company/mobile/android.")
     if "android_home" in config:
         require(isinstance(config["android_home"], str) and config["android_home"].strip(),
@@ -40,7 +40,9 @@ def load_config(path):
         config.setdefault(key, ["**"] if key == "allow_paths" else [])
         require(isinstance(config[key], list) and all(isinstance(v, str) for v in config[key]), f"{key}: массив строк.")
     config.setdefault("setup", [])
-    require(isinstance(config.get("checks"), list) and config["checks"], "Нужна хотя бы одна обязательная проверка checks.")
+    if review_only:
+        config.setdefault("checks", [])
+    require(review_only or (isinstance(config.get("checks"), list) and config["checks"]), "Нужна хотя бы одна обязательная проверка checks.")
     for group in ("setup", "checks"):
         require(isinstance(config[group], list), f"{group}: массив команд.")
         for item in config[group]:
@@ -121,3 +123,11 @@ def resolve_profile(config, card):
                 f"{stage}: нужны model и корректный effort.")
         result[stage] = {"model": aliases.get(value["model"], value["model"]), "effort": value["effort"]}
     return result
+
+
+def resolve_review_profile(config):
+    value = config.get("review_profile", {"model": "astra", "effort": "low"})
+    profile_config = {**config, "complexity_profiles": {"medium": {"review": value}}}
+    profile = resolve_profile(profile_config, {"complexity": "medium"})["review"]
+    require(profile is not None, "review_profile нельзя отключить.")
+    return profile

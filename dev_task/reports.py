@@ -65,6 +65,8 @@ def token_text(tokens):
 
 
 def update_reports(state, run_dir, *, announce=False):
+    if state.get("mode") == "branch_review":
+        return update_branch_review_report(state, run_dir)
     # A separate short lock also permits offline report generation without invoking Git.
     with (run_dir / "usage.lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
@@ -183,4 +185,32 @@ def update_reports(state, run_dir, *, announce=False):
     if announce:
         say("Токены Codex: " + token_text(report["total"]["tokens"]))
         say("Отчёт: " + str(run_dir / "report.md"))
+    return report
+
+
+def update_branch_review_report(state, run_dir):
+    sessions = report_sessions(run_dir)
+    report = {**state, "sessions": sessions, "total": aggregate_usage(sessions)}
+    write_json(run_dir / "report.json", report)
+    lines = [f"# Review: {state['branch']} → {state['base']}", "",
+             f"Состояние: {state['phase']}", "Checks не запускались.", ""]
+    for key in ("head_sha", "base_tip_sha", "base_sha"):
+        lines.append(f"{key}: {state.get(key, 'не определён')}")
+    result = state.get("review_result", {})
+    lines += ["", result.get("summary", ""), ""]
+    for item in result.get("findings", []):
+        lines.append(f"- {item['priority']} {item['file']}:{item['line']}: {item['explanation']}")
+    lines.extend(result.get("blockers", []))
+    if state.get("last_error"):
+        lines.append(state["last_error"])
+    if state.get("retained_worktree"):
+        lines.append("Сохранён worktree: " + state["worktree"])
+    lines += ["", "Токенов: " + token_text(report["total"]["tokens"])]
+    profile = state["execution_profile"]["review"]
+    lines.append(f"Модель: {profile['model']}; глубина: {profile['effort']}")
+    for session in sessions:
+        lines.append(f"Сессия: {session['status']}; журналы: {session['directory']}")
+        for change in session["limit_usage"]:
+            lines.append(f"Лимит {change['limit_id']}: {change['consumed_percentage_points']} п.п.")
+    (run_dir / "report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     return report

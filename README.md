@@ -239,3 +239,33 @@ python3 -m unittest discover -s tests -p test_cli.py -v
 путь разрешает от каталога конфигурации. Путь передаётся через `ANDROID_HOME`
 всем дочерним командам, включая команды в worktree. Уже заданная переменная
 `ANDROID_HOME` имеет приоритет. Без настройки используется текущее окружение.
+
+## Review удалённой ветки
+
+```bash
+./dev-task review feature/APP-1234 --base develop --config config.json
+```
+
+Карточка не требуется. Обе ветки загружаются с `config.remote` (по умолчанию
+`origin`); указывайте имена без префикса remote. Проверяется полный diff от
+единственного merge-base до вершины проверяемой ветки. Каждый запуск получает
+новый снимок удалённых веток и отдельный отчёт, без продолжения прошлого запуска.
+
+Для review достаточно `repo`, `worktrees_root`, `runs_root`; `checks` и
+`github_repo` необязательны. Нужны Git и авторизованный Codex CLI, `gh` не нужен.
+Модель задаёт `review_profile`, по умолчанию `{"model": "astra", "effort": "low"}`;
+поддерживаются aliases из `models`. Codex работает в `read-only`.
+Setup, checks и автоматические исправления не запускаются.
+
+Для непустого diff скрипт создаёт detached worktree вне основного checkout.
+Основной checkout может содержать staged, unstaged и untracked изменения.
+Локальные ветки и remote-tracking refs не обновляются. После завершения, ошибки
+или прерывания чистый временный worktree удаляется; при наличии изменений,
+включая ignored-файлы, сохраняется с выводом пути. Пустой diff не требует worktree
+или вызова Codex.
+
+Результаты, diff, SHA обеих веток и merge-base, журналы и расход сохраняются в
+`runs_root/<repo-key>/reviews/<run-id>/`: `state.json`, `report.json`, `report.md`,
+`review-context.json`, `review.diff`, а сессия — в `attempt-1/review-1/`.
+Код выхода: `0` — нет P0/P1/P2 (или изменений), `1` — замечания либо ошибка,
+`2` — неверные аргументы, `130` — прерывание. Детали причины находятся в отчёте.
