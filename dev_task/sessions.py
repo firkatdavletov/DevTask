@@ -6,6 +6,7 @@ import subprocess
 import time
 
 from .errors import require
+from .events import emit
 from .reports import update_reports
 from .storage import write_json
 from .usage import event_usage, subscription_snapshot
@@ -38,3 +39,5 @@ def tracked_session(config, state, directory, worktree, stage):
         record["tokens"], record["session_id"] = event_usage(directory / "events.jsonl", record["status"])
         write_json(usage_path, record)
         update_reports(state, run_dir)
+        emit(kind="agent", stage=stage, status=record["status"],
+             directory=str(directory), session_id=record.get("session_id"), tokens=record["tokens"])

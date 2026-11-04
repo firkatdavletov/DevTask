@@ -7,6 +7,7 @@ import unittest
 from unittest.mock import patch
 
 from dev_task.branch_review import run_branch_review
+from dev_task.config import load_config
 from dev_task.errors import TaskError
 from dev_task.repository import readonly_snapshot
 
@@ -42,7 +43,7 @@ class BranchReviewTest(unittest.TestCase):
         self.config = self.root / 'config.json'
         self.config.write_text(json.dumps({'repo': str(self.repo), 'worktrees_root': str(self.root / 'trees'),
                                           'runs_root': str(self.root / 'runs'), 'codex_bin': 'git'}))
-        self.args = argparse.Namespace(config=self.config, card=Path('feature/test'), base='develop')
+        self.args = argparse.Namespace(config=self.config, branch='feature/test', base='develop')
 
     def git(self, *args):
         return subprocess.run(['git', *args], cwd=self.repo, check=True, capture_output=True, text=True).stdout.strip()
@@ -61,7 +62,7 @@ class BranchReviewTest(unittest.TestCase):
             return getattr(self, 'review_result', result)
         try:
             with patch('dev_task.branch_review.launch_codex', side_effect=fake):
-                run_branch_review(self.args)
+                run_branch_review(self.args, load_config(self.config, review_only=True))
         finally:
             self.assertEqual(readonly_snapshot(self.repo), before)
             self.assertEqual(self.git('show-ref'), refs)
@@ -91,12 +92,12 @@ class BranchReviewTest(unittest.TestCase):
     def test_empty_diff_never_launches_codex(self):
         self.args.base = 'feature/test'
         with patch('dev_task.branch_review.launch_codex') as launch:
-            run_branch_review(self.args)
+            run_branch_review(self.args, load_config(self.config, review_only=True))
             launch.assert_not_called()
         self.assertFalse((self.root / 'trees').exists())
 
     def test_missing_branch_saves_failure_and_cleans_refs(self):
-        self.args.card = 'missing'
+        self.args.branch = 'missing'
         with self.assertRaises(TaskError):
             self.run_review()
         self.assertTrue(list((self.root / 'runs').rglob('report.json')))
@@ -133,7 +134,7 @@ class BranchReviewTest(unittest.TestCase):
             return 0
         with patch('dev_task.codex.execute', side_effect=execute), patch('dev_task.sessions.subscription_snapshot', return_value={}):
             with self.assertRaises(ValueError):
-                run_branch_review(self.args)
+                run_branch_review(self.args, load_config(self.config, review_only=True))
         self.assertEqual(list((self.root / 'trees').iterdir()), [])
 
     def test_blocking_findings_are_reported_without_repairs(self):

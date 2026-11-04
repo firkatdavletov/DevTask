@@ -1,16 +1,20 @@
 # Запуск workflow для задачи
 
+Команды выполняются из целевого Git-проекта или с `--project /path/to/project`.
+По умолчанию конфигурация — `.dev-task/config.json` в Git-корне. Явные пути
+карточки и `--config` считаются от каталога запуска. Старое `config.repo` игнорируется.
+
 ## 1. Подготовьте инструменты
 
 Нужны Python 3.10+, Git, `gh` и авторизованный Codex CLI. Для Android-проекта
 настройте JDK и SDK. Установите зависимость скрипта:
 
 ```bash
-python3 -m pip install -r requirements.txt
-./dev-task --help
+pipx install .
+dev-task --help
 ```
 
-В `config.json` укажите `repo`, `github_repo`, корни `worktrees_root` и
+В `.dev-task/config.json` целевого проекта укажите `github_repo`, корни `worktrees_root` и
 `runs_root`, `setup`, обязательные `checks`, а также `allow_paths` и
 `deny_paths`. Рабочие каталоги должны быть вне основного checkout. В
 `codex_args` можно передать `--add-dir` для Gradle cache; planning и review работают в
@@ -30,7 +34,7 @@ complexity: medium
 Описание задачи и критерии приёмки.
 ```
 
-Скрипт принимает `APP-1234` и `SS-5678`. Значения сложности: `trivial`,
+Идентификатор задачи: `[A-Za-z0-9][A-Za-z0-9_-]*`; базовая ветка — любое корректное имя Git-ветки. Значения сложности: `trivial`,
 `simple`, `medium`, `complex` (регистр не важен).
 
 | Сложность | Planning | Coding и исправления | Review |
@@ -48,7 +52,7 @@ complexity: medium
 ## 3. Запустите локально
 
 ```bash
-./dev-task run android-tasks/APP-1/task.md \
+dev-task run android-tasks/APP-1/task.md \
   --config config.json --local-only
 ```
 
@@ -109,7 +113,7 @@ Review возвращает замечания P0–P3. При P0/P1/P2 скри
 лимита:
 
 ```bash
-./dev-task run android-tasks/APP-1/task.md \
+dev-task run android-tasks/APP-1/task.md \
   --config config.json --local-only
 ```
 
@@ -124,7 +128,7 @@ Review возвращает замечания P0–P3. При P0/P1/P2 скри
 ## 5. Опубликуйте результат
 
 ```bash
-./dev-task publish android-tasks/APP-1/task.md --config config.json
+dev-task publish android-tasks/APP-1/task.md --config config.json
 ```
 
 `publish` использует сохранённое завершение/пропуск planning, повторяет checks и принимает только актуальное успешное review
@@ -143,7 +147,7 @@ Review возвращает замечания P0–P3. При P0/P1/P2 скри
 Для доработки опубликованного Draft PR измените карточку и запустите:
 
 ```bash
-ANDROID_HOME="$HOME/Library/Android/sdk" ./dev-task run android-tasks/KRMA-10003-add-username-validation-error/task.md \
+ANDROID_HOME="$HOME/Library/Android/sdk" dev-task run android-tasks/KRMA-10003-add-username-validation-error/task.md \
   --config config.json --continue-pr
 ```
 
@@ -165,7 +169,7 @@ Review видит полный diff PR, сообщение коммита опи
 ## 6. Посмотрите отчёт и журналы
 
 ```bash
-./dev-task report android-tasks/APP-1/task.md --config config.json
+dev-task report android-tasks/APP-1/task.md --config config.json
 ```
 
 Эта команда восстанавливает отчёт из локальных журналов, не запуская модель,
@@ -189,13 +193,14 @@ checks или публикацию. Она работает и для опубл
 показателей или для старых запусков без снимков процент неизвестен. Пропуск
 review означает «качество не оценивалось».
 
-Исторический `test_workflow.py` относится к другой версии workflow с иным
-форматом состояния и префиксами KRMA/AAS. Текущие команды описаны здесь и в README.md.
+Полный набор запускается через `python3 -m unittest discover -s tests`.
+Исторический класс `test_workflow.WorkflowTest` ожидает старый формат отчётов
+и состояния; актуальные интеграционные проверки используют остальные классы.
 
 ## Review удалённой ветки
 
 ```bash
-./dev-task review feature/APP-1234 --base develop --config config.json
+dev-task review feature/APP-1234 --base develop --config config.json
 ```
 
 Карточка не требуется. Обе ветки загружаются с `config.remote` (по умолчанию
@@ -203,7 +208,7 @@ review означает «качество не оценивалось».
 единственного merge-base до вершины проверяемой ветки. Каждый запуск получает
 новый снимок удалённых веток и отдельный отчёт, без продолжения прошлого запуска.
 
-Для review достаточно `repo`, `worktrees_root`, `runs_root`; `checks` и
+Для review достаточно `worktrees_root`, `runs_root`; `checks` и
 `github_repo` необязательны. Нужны Git и авторизованный Codex CLI, `gh` не нужен.
 Модель задаёт `review_profile`, по умолчанию `{"model": "astra", "effort": "low"}`;
 поддерживаются aliases из `models`. Codex работает в `read-only`.

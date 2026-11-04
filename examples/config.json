@@ -1,0 +1,12 @@
+{
+  "github_repo": "github.com/owner/repository",
+  "worktrees_root": "~/.local/share/dev-task/worktrees",
+  "runs_root": "~/.local/share/dev-task/runs",
+  "setup": [],
+  "checks": [
+    {"name": "Unit tests", "argv": ["python3", "-m", "unittest", "discover", "-s", "tests"]}
+  ],
+  "env": {},
+  "allow_paths": ["**"],
+  "deny_paths": [".env", "**/.env", "*.keystore", "**/*.keystore"]
+}

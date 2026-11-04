@@ -20,6 +20,11 @@ ARGS = ["run", "card.md", "--config", "config.json"]
 
 
 class CliTest(unittest.TestCase):
+    def setUp(self):
+        project = patch("dev_task.cli.load_project")
+        project.start()
+        self.addCleanup(project.stop)
+
     def invoke(self, *args, direct=False, no_site=False):
         with tempfile.TemporaryDirectory() as directory:
             argv = [str(SCRIPT)] if direct else [sys.executable, *(["-S"] if no_site else []), str(SCRIPT)]
@@ -53,30 +58,29 @@ class CliTest(unittest.TestCase):
     def test_invalid_flag_combinations_stop_before_workflow(self):
         for argv in (["publish", "card.md", "--config", "config.json", "--local-only"],
                      [*ARGS, "--continue-pr", "--rerun"]):
-            with self.subTest(argv=argv), patch("dev_task.cli.run_workflow") as workflow:
+            with self.subTest(argv=argv), patch("dev_task.cli.Orchestrator.run") as workflow:
                 with contextlib.redirect_stderr(io.StringIO()) as stderr:
                     self.assertEqual(main(argv), 1)
                 self.assertIn("dev-task:", stderr.getvalue())
                 workflow.assert_not_called()
 
     def test_main_accepts_explicit_arguments(self):
-        with patch("dev_task.cli.run_workflow") as workflow:
+        with patch("dev_task.cli.Orchestrator.run") as workflow:
             self.assertEqual(main([*ARGS, "--local-only"]), 0)
         args = workflow.call_args.args[0]
-        self.assertEqual(args.command, "run")
         self.assertEqual(args.card, Path("card.md"))
         self.assertTrue(args.local_only)
 
     def test_expected_errors_have_message_and_exit_code_one(self):
         for error in (TaskError("failure"), OSError("failure"), ValueError("failure"),
                       yaml.YAMLError("failure"), subprocess.SubprocessError("failure")):
-            with self.subTest(error=type(error)), patch("dev_task.cli.run_workflow", side_effect=error):
+            with self.subTest(error=type(error)), patch("dev_task.cli.Orchestrator.run", side_effect=error):
                 with contextlib.redirect_stderr(io.StringIO()) as stderr:
                     self.assertEqual(main(ARGS), 1)
                 self.assertEqual(stderr.getvalue(), "dev-task: failure\n")
 
     def test_interrupt_keeps_exit_code_and_message(self):
-        with patch("dev_task.cli.run_workflow", side_effect=KeyboardInterrupt):
+        with patch("dev_task.cli.Orchestrator.run", side_effect=KeyboardInterrupt):
             with contextlib.redirect_stdout(io.StringIO()) as stdout:
                 self.assertEqual(main(ARGS), 130)
         self.assertIn("Worktree и состояние сохранены", stdout.getvalue())

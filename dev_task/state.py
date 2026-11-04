@@ -5,6 +5,7 @@ import time
 from pathlib import Path
 
 from .errors import TaskError, require
+from .models import RunRequest
 from .storage import read_json
 
 
@@ -71,7 +72,7 @@ def archive_cycle(state, run_dir):
     state.setdefault("cycle_history", []).append(record)
 
 
-def configure_cycle(config, state, profile, args, run_dir):
+def configure_cycle(config, state, profile, args: RunRequest, run_dir):
     """Upgrade in place without adding planning after an old cycle's coding."""
     require(state.get("workflow_version", 0) <= 4, "Состояние создано более новой версией dev-task.")
     if args.rerun:

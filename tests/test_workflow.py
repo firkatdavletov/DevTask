@@ -17,6 +17,8 @@ import json, os, sys, time
 from pathlib import Path
 root = Path(os.environ["TEST_ROOT"])
 argv = sys.argv
+if "app-server" in argv:
+    sys.exit(0)
 schema = json.loads(Path(argv[argv.index("--output-schema") + 1]).read_text())
 stage = "commit_message" if "subject" in schema["properties"] else "planning" if "plan" in schema["properties"] else "review" if "findings" in schema["properties"] else "coding"
 prompt = sys.stdin.read()
@@ -180,7 +182,7 @@ class WorkflowTest(unittest.TestCase):
         self.card.write_text(f"---\nissue: {issue}\nbase: {base}\ntitle: Test task\ncomplexity: {complexity}\n---\nImplement name editing.\n")
 
     def run_task(self, command="run", *flags, success=True):
-        result = subprocess.run([sys.executable, str(SCRIPT), command, str(self.card), "--config", str(self.config), *flags],
+        result = subprocess.run([sys.executable, str(SCRIPT), command, str(self.card), "--config", str(self.config), "--project", str(self.repo), *flags],
                                 env=self.env, capture_output=True, text=True, timeout=30)
         if success:
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

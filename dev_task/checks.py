@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 
 from .coding import implement
-from .console import say
+from .events import emit
 from .contracts import merge_implementation_results
 from .errors import CheckFailed, TaskError, require
 from .processes import capture, execute
@@ -24,7 +24,7 @@ from .storage import write_json
 def run_steps(steps, worktree, attempt, prefix):
     evidence = []
     for i, step in enumerate(steps, 1):
-        say(f"  {prefix}: {step['name']}")
+        emit(f"  {prefix}: {step['name']}", kind="check", stage=prefix, status="started", name=step["name"], iteration=i)
         log = attempt / f"{prefix}-{i}.log"
         started = time.monotonic()
         try:
@@ -34,6 +34,7 @@ def run_steps(steps, worktree, attempt, prefix):
         evidence.append({"name": step["name"], "argv": step["argv"], "exit_code": code,
                          "seconds": round(time.monotonic() - started, 2), "log": str(log)})
         write_json(attempt / f"{prefix}.json", evidence)
+        emit(kind="check", stage=prefix, status="passed" if code == 0 else "failed", **evidence[-1])
         if code != 0 and prefix == "check":
             raise CheckFailed(f"{step['name']}: код {code}. Лог: {log}", evidence)
         require(code == 0, f"{step['name']}: код {code}. Лог: {log}")
@@ -90,7 +91,7 @@ def fix_failed_checks(config, state, task_text, card_path, attempt, state_path):
     previous_result = state.get("result")
     candidate_state = dict(state)
     started = time.monotonic()
-    say(f"Автоисправление checks: {count + 1}/{limit}")
+    emit(f"Автоисправление checks: {count + 1}/{limit}", kind="retry", stage="check_fix", iteration=count + 1, limit=limit)
     try:
         # Include any new files from an interrupted fix in the next session's diff.
         git(worktree, "add", "--all")
@@ -137,7 +138,7 @@ def verify_with_fixes(config, state, task_text, card_path, attempt, state_path, 
         # An unchanged candidate can be retried after fixing the environment. Partial
         # source edits from an unfinished repair still require that repair to finish.
         if previous_diff and previous_diff.is_file() and previous_diff.read_text(encoding="utf-8") == current_diff:
-            say("Повтор обязательных проверок перед продолжением автоисправления checks.")
+            emit("Повтор обязательных проверок перед продолжением автоисправления checks.")
         else:
             fix_failed_checks(config, state, task_text, card_path, attempt, state_path)
     round_number = 0

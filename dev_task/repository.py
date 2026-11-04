@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import fcntl
 import fnmatch
 import os
@@ -78,6 +79,9 @@ def copy_pending_local_files(state, state_path):
 def prepare(config, card, run_dir, state_path):
     repo, remote = config["repo"], config["remote"]
     require(git(repo, "rev-parse", "--show-toplevel") == str(repo), "config.repo должен быть корнем checkout.")
+    require(not card["base"].startswith(("refs/", remote + "/")) and
+            capture(["git", "check-ref-format", "refs/heads/" + card["base"]], repo, ok=False).returncode == 0,
+            "Некорректная базовая ветка.")
     assert_remote(config)
     git(repo, "fetch", "--prune", remote)
     ref = f"refs/remotes/{remote}/{card['base']}"
@@ -91,7 +95,8 @@ def prepare(config, card, run_dir, state_path):
         copy_pending_local_files(state, state_path)
         return state
     branch = "feature/" + card["issue"]
-    worktree = config["worktrees_root"] / card["issue"]
+    repo_key = hashlib.sha256(str(repo).encode()).hexdigest()[:12]
+    worktree = config["worktrees_root"] / repo_key / card["issue"]
     require(not worktree.exists(), "Каталог worktree уже существует без state.json. Проверьте его вручную.")
     require(capture(["git", "show-ref", "--verify", "--quiet", "refs/heads/" + branch], repo, ok=False).returncode != 0,
             "Локальная ветка уже существует без состояния dev-task.")

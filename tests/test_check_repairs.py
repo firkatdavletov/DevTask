@@ -299,7 +299,7 @@ class CheckRepairTest(unittest.TestCase):
 
     def run_task(self, command="run", *flags, success=True):
         result = subprocess.run([sys.executable, str(SCRIPT), command, str(self.card),
-                                 "--config", str(self.config_path), *flags],
+                                 "--config", str(self.config_path), "--project", str(self.repo), *flags],
                                 env=self.env, text=True, capture_output=True, timeout=30)
         if success:
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

@@ -3,32 +3,31 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
-import shutil
 import uuid
 
 from .codex import launch_codex
-from .config import load_config, resolve_review_profile
-from .console import say
+from .config import resolve_review_profile
+from .models import OperationResult, ReviewRequest
+from .events import emit
 from .contracts import REVIEW_SCHEMA, blocking_findings, validate_review
 from .errors import TaskError, require
-from .processes import capture
+from .processes import executable_path, capture
 from .reports import update_reports
 from .repository import git, readonly_snapshot, repository_lock
 from .storage import write_json
 
 
-def run_branch_review(args):
-    config = load_config(args.config.expanduser().resolve(), review_only=True)
+def run_branch_review(args: ReviewRequest, config) -> OperationResult:
     profile = resolve_review_profile(config)
     repo = config['repo']
     for executable in ('git', config['codex_bin']):
-        require(shutil.which(executable), f'Команда не найдена: {executable}')
+        require(executable_path(executable), f'Команда не найдена: {executable}')
     require(git(repo, 'rev-parse', '--show-toplevel') == str(repo), 'config.repo должен быть корнем checkout.')
     for name in ('worktrees_root', 'runs_root'):
         require(not config[name].is_relative_to(repo), f'{name} должен находиться вне checkout.')
     require(not config['runs_root'].is_relative_to(config['worktrees_root']) and
             not config['worktrees_root'].is_relative_to(config['runs_root']), 'Каталоги runs и worktrees должны быть раздельными.')
-    branch, base = str(args.card), args.base
+    branch, base = args.branch, args.base
     for name in (branch, base):
         require(not name.startswith(('refs/', config['remote'] + '/')) and
                 capture(['git', 'check-ref-format', 'refs/heads/' + name], repo, ok=False).returncode == 0,
@@ -99,14 +98,16 @@ SHA ветки: {head}; SHA базы: {base_tip}; merge-base: {bases[0]}.
                         git(repo, 'worktree', 'remove', str(worktree))
                     else:
                         state['retained_worktree'] = True
-                        say('Сохранён изменённый worktree: ' + str(worktree))
+                        emit('Сохранён изменённый worktree: ' + str(worktree))
             except (TaskError, OSError) as exc:
                 state['retained_worktree'] = True
                 state['cleanup_error'] = str(exc)
-                say('Worktree сохранён: ' + str(worktree))
+                emit('Worktree сохранён: ' + str(worktree))
             finally:
                 for ref in refs:
                     capture(['git', 'update-ref', '-d', ref], repo, ok=False)
                 write_json(run_dir / 'state.json', state)
                 update_reports(state, run_dir)
-                say('Отчёт review: ' + str(run_dir / 'report.md'))
+                emit('Отчёт review: ' + str(run_dir / 'report.md'))
+
+    return OperationResult(state["phase"], run_dir, worktree if worktree.exists() else None)

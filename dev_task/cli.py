@@ -1,4 +1,4 @@
-"""Local Jira card -> isolated Codex worktree -> checked Draft PR. Python 3.10+."""
+"""Project-independent Codex task orchestration. Python 3.10+."""
 from __future__ import annotations
 
 import argparse
@@ -13,8 +13,8 @@ except ImportError:
 
 from .console import say
 from .errors import TaskError, require
-from .workflow import run_workflow
-from .branch_review import run_branch_review
+from .api import Orchestrator, load_project
+from .models import ReviewRequest, RunRequest, TaskRequest
 
 
 def parse_args(argv=None):
@@ -23,7 +23,8 @@ def parse_args(argv=None):
     parser.add_argument("command", choices=("run", "publish", "report", "review"))
     parser.add_argument("card", help="Карточка задачи или имя удалённой ветки для review")
     parser.add_argument("--base", help="Базовая удалённая ветка для review")
-    parser.add_argument("--config", required=True, type=Path)
+    parser.add_argument("--config", type=Path, help="JSON конфигурация (по умолчанию .dev-task/config.json проекта)")
+    parser.add_argument("--project", type=Path, help="Каталог проекта (по умолчанию cwd)")
     parser.add_argument("--local-only", action="store_true", help="Выполнить реализацию и проверки без commit/push/PR")
     parser.add_argument("--continue-pr", action="store_true", help="Начать доработку опубликованного Draft PR в той же ветке")
     parser.add_argument("--rerun", action="store_true", help="Повторно запустить Codex до создания коммита, сохранив diff")
@@ -44,14 +45,24 @@ def parse_args(argv=None):
     return args
 
 
+def render_event(event):
+    if event.message:
+        say(event.message)
+
+
 def main(argv=None):
     args = None
     try:
         args = parse_args(argv)
+        project = load_project(args.project if args.project is not None else Path.cwd(), args.config, offline=args.command == "report")
+        orchestrator = Orchestrator(project, on_event=render_event)
         if args.command == "review":
-            run_branch_review(args)
+            orchestrator.review(ReviewRequest(str(args.card), args.base))
+        elif args.command == "run":
+            orchestrator.run(RunRequest(args.card, local_only=args.local_only, continue_pr=args.continue_pr,
+                                        rerun=args.rerun, skip_review=args.skip_review, skip_planning=args.skip_planning))
         else:
-            run_workflow(args)
+            getattr(orchestrator, args.command)(TaskRequest(args.card))
         return 0
     except KeyboardInterrupt:
         say("Остановлено. Результаты review сохранены." if args and args.command == "review"

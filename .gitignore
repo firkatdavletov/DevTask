@@ -4,3 +4,8 @@ android-tasks
 .idea
 __pycache__/
 *.pyc
+.venv/
+build/
+dist/
+*.egg-info/
+!examples/config.json

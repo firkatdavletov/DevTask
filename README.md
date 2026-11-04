@@ -5,15 +5,53 @@
 Codex. После успешных checks и review он может создать коммит, отправить ветку и
 открыть Draft PR. Для локальной работы используйте `--local-only`.
 
-Требуются Python 3.10+, PyYAML (`python3 -m pip install -r requirements.txt`),
-Git, авторизованный Codex CLI и GitHub CLI `gh`. Рабочие каталоги и журналы
-задаются в `config.json` и должны находиться вне checkout приложения.
+Требуются Python 3.10+, Git, авторизованный Codex CLI и GitHub CLI `gh`.
+Поддерживаются macOS/Linux. Установка из каталога исходников:
+
+```bash
+pipx install .
+# Для разработки:
+python3 -m pip install -e .
+```
+
+Команда доступна из любого каталога; также работают `python -m dev_task` и `./dev-task`.
+Репозиторий выбирается через `--project`, по умолчанию — через `Path.cwd()`.
+Из вложенного каталога определяется Git-корень. Настройки по умолчанию читаются
+из `<git-root>/.dev-task/config.json`; `--config` задаёт другой JSON без объединения.
+Относительные пути карточки, `--project` и явного `--config` считаются от каталога
+запуска, пути внутри JSON — от каталога самого JSON. Текущий каталог не меняется.
+Команда `report` разрешает корень по файловым меткам `.git` без вызова Git.
+Если checkout удалён, передайте его прежний корень через `--project` и доступный
+JSON через `--config`: отчёт восстанавливается из журналов без Git, gh и Codex.
+
+Поле `config.repo` устарело и игнорируется с предупреждением: старый запуск из
+каталога инструмента требует добавления `--project /path/to/project`.
+
+Скопируйте [пример конфигурации](examples/config.json) в `.dev-task/config.json`
+целевого проекта, укажите свой `github_repo` и обязательные `checks`.
+`worktrees_root` и `runs_root` обязательны, должны находиться вне checkout и не
+вкладываться друг в друга. Новые worktree размещаются в
+`worktrees_root/<repo-key>/<issue>`; существующие задачи используют сохранённый путь.
+Состояние и история workflow сохраняют прежний формат.
+
+```bash
+cd /path/to/project
+dev-task run tasks/task.md --local-only
+dev-task publish tasks/task.md
+# Из другого каталога:
+dev-task run /path/to/task.md --project /path/to/project --local-only
+```
+
+Команды проверок задаются проектом: Python — `python3 -m unittest discover -s tests`,
+Android/KMP — нужные команды `./gradlew`, JavaScript — например `npm test`.
+Git/GitHub workflow общий для всех стеков.
 
 ## Карточка и модели
 
 Карточка начинается с YAML. Обязательны `issue`, `base`, `title`, `complexity`
-и непустое описание. Поддерживаются номера `APP-1234` и `SS-5678`; `base` —
-`develop` либо другая ветка `feature/APP-1234` или `feature/SS-5678`.
+и непустое описание. Поле `issue` принимает `[A-Za-z0-9][A-Za-z0-9_-]*`, например `APP-1234`,
+`OTHER-7-description` или `update_parser`. `base` — корректное имя удалённой
+Git-ветки, например `main`, `develop` или `release/1.0`. Рабочая ветка — `feature/<issue>`.
 Регистр сложности нормализуется.
 
 ```yaml
@@ -45,7 +83,7 @@ complexity: medium
 ## Запуск
 
 ```bash
-./dev-task run android-tasks/APP-1/task.md --config config.json --local-only
+dev-task run android-tasks/APP-1/task.md --config config.json --local-only
 ```
 
 Порядок: подготовка worktree → setup → planning → coding → checks → review. Каждый вызов
@@ -98,7 +136,7 @@ Skill копируется, если содержит `SKILL.md` и этот ф�
 После локального запуска и просмотра diff опубликуйте тот же проверенный снимок:
 
 ```bash
-./dev-task publish android-tasks/APP-1/task.md --config config.json
+dev-task publish android-tasks/APP-1/task.md --config config.json
 ```
 
 Команда `run` без `--local-only` публикует сразу после успешных checks и review.
@@ -120,7 +158,7 @@ Skill копируется, если содержит `SKILL.md` и этот ф�
 Для доработки опубликованного Draft PR обновите карточку и выполните:
 
 ```bash
-python3 ./dev-task run android-tasks/KRMA-10003-add-username-validation-error/task.md --config config.json --continue-pr
+dev-task run android-tasks/KRMA-10003-add-username-validation-error/task.md --config config.json --continue-pr
 ```
 
 Новый цикл сохраняет незакоммиченные правки в существующем worktree и проходит
@@ -172,7 +210,7 @@ review отчёт указывает «качество не оценивало�
 Пересчитать отчёт локально, в том числе для опубликованной APP-1:
 
 ```bash
-./dev-task report android-tasks/APP-1/task.md --config config.json
+dev-task report android-tasks/APP-1/task.md --config config.json
 ```
 
 Подробные команды и пути к журналам описаны в [WORKFLOW.md](WORKFLOW.md).
@@ -199,21 +237,23 @@ PR; они не заменяют результаты обязательных c
 ## Структура кода
 
 Исполняемый файл `dev-task` передаёт управление в `dev_task.cli.main(argv=None)`.
-Пакет лежит рядом со скриптом и не требует установки: запуск по абсолютному пути
-работает из любого рабочего каталога.
+Установленная команда и запуск модуля используют один CLI-адаптер.
+Публичный API ядра доступен через `dev_task.api`.
 
 | Модули пакета `dev_task` | Ответственность |
 | --- | --- |
-| `cli`, `workflow` | Аргументы и коды выхода; последовательность этапов и продолжение PR |
+| `cli`, `console` | Аргументы, отображение событий и коды выхода |
+| `api`, `models`, `events` | Python API, запросы/результаты и контекст выполнения |
+| `workflow` | Последовательность этапов и продолжение PR |
 | `card`, `config`, `state` | Карточка; конфигурация и профили; миграции и история циклов |
 | `planning`, `coding`, `checks`, `review`, `publishing` | Этапы workflow и принадлежащие им циклы исправлений |
 | `plan_context`, `contracts` | Целостность плана и общий контекст; схемы, валидация и правила результатов |
 | `codex`, `sessions` | Запуск Codex; учёт жизненного цикла сессии |
 | `reports`, `usage` | Восстановление и формирование отчётов; токены и лимиты подписки |
 | `repository`, `github`, `processes` | Git/worktree и снимки; GitHub CLI и PR; выполнение подпроцессов |
-| `storage`, `errors`, `console` | Файловое хранение; исключения и проверка условий; вывод |
+| `storage`, `errors` | Файловое хранение; исключения и проверка условий |
 
-Зависимости направлены от `cli` к `workflow`, затем к этапам и инфраструктуре.
+Зависимости направлены от `cli` через `api` к `workflow`, затем к этапам и инфраструктуре.
 Этап review использует checks, checks — coding. Запуск модели использует цепочку
 `codex → sessions → reports → usage`. Общие проверки Git-снимка находятся в
 `repository`, проверка принятого плана — в `plan_context`, а правила результатов
@@ -240,21 +280,58 @@ python3 -m unittest discover -s tests -p test_architecture.py -v
 python3 -m unittest discover -s tests -p test_cli.py -v
 ```
 
-Исторический `test_workflow.py` относится к другой версии скрипта с иным форматом
-состояния и префиксами KRMA/AAS.
+Полный набор: `python3 -m unittest discover -s tests`. Исторический класс
+`test_workflow.WorkflowTest` ожидает прежний формат состояния и отчётов;
+его несовместимость воспроизводится и на исходном HEAD. Остальные тесты
+используют актуальные контракты, в том числе `test_api.py`.
 
-### Путь к Android SDK
+## Окружение команд
 
-Необязательное поле `android_home` в `config.json` задаёт путь к SDK, например
-`"android_home": "~/Library/Android/sdk"`. Скрипт раскрывает `~`, а относительный
-путь разрешает от каталога конфигурации. Путь передаётся через `ANDROID_HOME`
-всем дочерним командам, включая команды в worktree. Уже заданная переменная
-`ANDROID_HOME` имеет приоритет. Без настройки используется текущее окружение.
+`env` — объект строковых переменных окружения. Значения переопределяют
+унаследованное окружение для всех дочерних процессов, включая setup, checks,
+Codex, Git и gh. Глобальное окружение процесса Python не изменяется.
+
+```json
+{"env": {"ANDROID_HOME": "/path/to/sdk", "JAVA_HOME": "/path/to/jdk"}}
+```
+
+Старое поле `android_home` поддерживается как алиас: раскрывает `~` и путь
+относительно JSON, задаёт `ANDROID_HOME`, только если его нет в унаследованном
+окружении. Явный `env.ANDROID_HOME` имеет приоритет над обоими.
+
+## Использование ядра
+
+```python
+from pathlib import Path
+from dev_task.api import Orchestrator, RunRequest, TaskRequest, load_project
+
+project = load_project(Path("/path/to/project"))
+events = []
+orchestrator = Orchestrator(project, on_event=events.append)
+result = orchestrator.run(RunRequest(Path("/path/to/task.md"), local_only=True))
+print(result.status, result.report_path)
+orchestrator.report(TaskRequest(Path("/path/to/task.md")))
+```
+
+Методы `run`, `publish`, `report`, `review` синхронные. Для review используется
+`ReviewRequest(branch="feature/task", base="main")`. Все методы возвращают
+`OperationResult` со статусом, каталогом запуска, путями состояния/отчёта,
+worktree и PR при наличии. Ошибки workflow вызывают `TaskError`, ошибки I/O
+сохраняют исходный тип; `KeyboardInterrupt` сохраняет состояние перед выходом.
+
+Без `on_event` ядро ничего не печатает. `ProgressEvent` содержит `kind`,
+`operation`, `stage`, `status`, `message` и `details`: агент/модель/сессия,
+попытки исправлений, проверки, пути журналов и отчётов. Используйте поля события,
+не разбирайте текст сообщения. Обработчики вызываются синхронно; их исключения
+распространяются вызывающему коду. Контекст наблюдателя и окружения изолирован
+через `ContextVar` и восстанавливается после каждого вызова, включая ошибку.
+Для TUI или расширения редактора можно вызывать API в рабочем потоке и
+передавать события интерфейсу. Параллельные запуски одного репозитория защищены блокировкой.
 
 ## Review удалённой ветки
 
 ```bash
-./dev-task review feature/APP-1234 --base develop --config config.json
+dev-task review feature/APP-1234 --base develop --config config.json
 ```
 
 Карточка не требуется. Обе ветки загружаются с `config.remote` (по умолчанию
@@ -262,7 +339,7 @@ python3 -m unittest discover -s tests -p test_cli.py -v
 единственного merge-base до вершины проверяемой ветки. Каждый запуск получает
 новый снимок удалённых веток и отдельный отчёт, без продолжения прошлого запуска.
 
-Для review достаточно `repo`, `worktrees_root`, `runs_root`; `checks` и
+Для review достаточно `worktrees_root`, `runs_root`; `checks` и
 `github_repo` необязательны. Нужны Git и авторизованный Codex CLI, `gh` не нужен.
 Модель задаёт `review_profile`, по умолчанию `{"model": "astra", "effort": "low"}`;
 поддерживаются aliases из `models`. Codex работает в `read-only`.

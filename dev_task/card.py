@@ -17,10 +17,8 @@ def read_card(path):
     require(isinstance(meta, dict), "Метаданные должны быть YAML-объектом.")
     for key in ("issue", "base", "title"):
         require(isinstance(meta.get(key), str) and meta[key].strip(), f"Нужно строковое поле {key}.")
-    require(re.fullmatch(r"(?:KRMA|AAS)-[1-9][0-9]*(?:-[a-z0-9]+)*", meta["issue"]),
-            "Ожидается KRMA-1234 или AAS-5678 с описанием через дефисы, например KRMA-10003-add-username-validation-error.")
-    require(meta["base"] == "develop" or re.fullmatch(r"feature/(?:KRMA|AAS)-[1-9][0-9]*", meta["base"]),
-            "base: develop или feature/KRMA-1234 (либо AAS).")
+    require(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", meta["issue"]),
+            "issue: идентификатор из латинских букв, цифр, дефисов и подчёркиваний.")
     require(meta["base"] != "feature/" + meta["issue"], "Рабочая и целевая ветки должны отличаться.")
     require("\n" not in meta["title"] and "\r" not in meta["title"], "Заголовок должен быть однострочным.")
     require("".join(parts[end + 1:]).strip(), "Описание задачи пустое.")

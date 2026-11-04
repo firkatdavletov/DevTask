@@ -3,19 +3,18 @@ from __future__ import annotations
 
 import json
 import re
-import shutil
 import subprocess
 import time
 from pathlib import Path
 
 from .codex import launch_codex
 from .config import DEFAULT_MODELS
-from .console import say
+from .events import emit
 from .contracts import COMMIT_MESSAGE_SCHEMA, blocking_findings, validate_commit_message
 from .errors import TaskError, require
 from .github import find_pr, gh
 from .plan_context import require_planning
-from .processes import capture, execute
+from .processes import executable_path, capture, execute
 from .repository import (
     assert_published_remote,
     assert_remote,
@@ -27,14 +26,15 @@ from .storage import write_json
 
 
 def commit_message(config, state, card, state_path):
-    issue = re.match(r"(?:KRMA|AAS)-[1-9][0-9]*", card["issue"]).group()
+    match = re.match(r"[A-Z][A-Z0-9]*-[1-9][0-9]*(?=-|$)", card["issue"])
+    issue = match.group() if match else card["issue"]
     if state.get("commit_message_tree") == state["checked_tree"] and state.get("commit_message_issue") == issue \
             and state.get("commit_message_base") == state.get("cycle_base_sha", state["base_sha"]):
         message = state.get("commit_message", "")
         require(message.startswith(issue + " "), "Повреждено сохранённое сообщение коммита.")
         validate_commit_message({"status": "generated", "subject": message[len(issue) + 1:]})
         return message
-    require(shutil.which(config["codex_bin"]), f"Команда не найдена: {config['codex_bin']}")
+    require(executable_path(config["codex_bin"]), f"Команда не найдена: {config['codex_bin']}")
     worktree = assert_worktree(state)
     directory = Path(state["last_attempt"]) / f"commit-message-{time.time_ns()}"
     directory.mkdir()
@@ -79,7 +79,7 @@ def commit_changes(config, state, worktree, message):
         argv += ["-c", "core.hooksPath=" + str(local_hooks)]
     argv += ["commit", "-m", message]
     log = Path(state["last_attempt"]) / "commit.log"
-    say(f"Git commit. Журнал: {log}")
+    emit(f"Git commit. Журнал: {log}")
     try:
         code = execute(argv, worktree, log, 120)
     except subprocess.TimeoutExpired as exc:
@@ -107,7 +107,7 @@ def publish(config, state, card, run_dir, state_path):
         if not state.get("commit_sha") and state["checked_tree"] == git(worktree, "rev-parse", state["cycle_base_sha"] + "^{tree}"):
             state.update(phase="published", commit_sha=state["cycle_base_sha"], cycle_outcome="no_changes")
             write_json(state_path, state)
-            say("Изменений нет. Draft PR: " + existing["url"])
+            emit("Изменений нет. Draft PR: " + existing["url"])
             return
     result = state["result"]
     body = [f"Задача: {card.get('jira') or card['issue']}", "", result["summary"], "", "Проверки:"]
@@ -120,7 +120,7 @@ def publish(config, state, card, run_dir, state_path):
     body_path.write_text("\n".join(body) + "\n", encoding="utf-8")
     if not state.get("commit_sha"):
         message = commit_message(config, state, card, state_path)
-        say("Сообщение коммита: " + message)
+        emit("Сообщение коммита: " + message)
         commit_changes(config, state, worktree, message)
         state.update(commit_sha=git(worktree, "rev-parse", "HEAD"), phase="committed")
         write_json(state_path, state)  # A failed push / PR creation can be retried without another commit.
@@ -139,4 +139,4 @@ def publish(config, state, card, run_dir, state_path):
         require(pr is not None, "PR создан, но не найден повторным запросом. Повторите publish.")
     state.update(phase="published", pr=pr, last_published_sha=state["commit_sha"], cycle_outcome="published")
     write_json(state_path, state)
-    say("Draft PR: " + pr["url"])
+    emit("Draft PR: " + pr["url"])

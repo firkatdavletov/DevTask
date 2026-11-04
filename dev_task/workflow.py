@@ -1,21 +1,21 @@
 """Command orchestration and published-PR continuation."""
 from __future__ import annotations
 
-import argparse
+from dataclasses import replace
 import hashlib
-import os
-import shutil
 import time
 
 from .card import read_card
 from .checks import run_steps, verify_with_fixes
 from .coding import implement
-from .config import load_config, resolve_profile
-from .console import say
+from .config import resolve_profile
+from .models import OperationResult, WorkflowRequest
+from .events import emit
 from .errors import require
 from .github import find_pr
 from .plan_context import require_planning
 from .planning import planning_once
+from .processes import executable_path
 from .publishing import publish
 from .reports import update_reports
 from .repository import (
@@ -54,7 +54,7 @@ def start_continuation(config, state, card, args, run_dir):
     previous_card = (run_dir / "task.md").read_text(encoding="utf-8")
     previous_commit = state["commit_sha"]
     # configure_cycle archives the old cycle and resets only its current results.
-    reset_args = argparse.Namespace(rerun=True, skip_review=args.skip_review, skip_planning=args.skip_planning)
+    reset_args = replace(args, rerun=True, continue_pr=False)
     archive_cycle(state, run_dir)
     state.pop("commit_sha")
     state.pop("cycle_id", None)
@@ -63,14 +63,10 @@ def start_continuation(config, state, card, args, run_dir):
     return True
 
 
-def run_workflow(args):
-    card_path, config_path = args.card.expanduser().resolve(), args.config.expanduser().resolve()
+def run_workflow(args: WorkflowRequest, config) -> OperationResult:
+    card_path = args.card.expanduser().resolve()
     # Загружает карточку задачи
     card, task_text = read_card(card_path)
-    # Загружает конфигурацию
-    config = load_config(config_path)
-    if "android_home" in config:
-        os.environ.setdefault("ANDROID_HOME", str(config["android_home"]))
     repo = config["repo"]
     repo_key = hashlib.sha256(str(repo).encode()).hexdigest()[:12]
     run_dir = config["runs_root"] / repo_key / card["issue"]
@@ -78,10 +74,10 @@ def run_workflow(args):
     if args.command == "report":
         require(state_path.is_file(), "Состояние задачи не найдено; сначала выполните run.")
         update_reports(read_json(state_path), run_dir, announce=True)
-        return
+        return OperationResult("reported", run_dir)
     # Готовит каталог запуска и блокирует параллельный запуск
     for executable in ("git", "gh") + ((config["codex_bin"],) if args.command == "run" else ()):
-        require(shutil.which(executable), f"Команда не найдена: {executable}")
+        require(executable_path(executable), f"Команда не найдена: {executable}")
     require(repo.is_dir(), "Каталог репозитория не найден.")
     for directory in (config["worktrees_root"], config["runs_root"]):
         require(not directory.is_relative_to(repo), "worktrees_root и runs_root должны находиться вне checkout.")
@@ -112,8 +108,8 @@ def run_workflow(args):
                 pr = find_pr(config, state)
                 require(pr is not None, "Сохранённый PR не найден.")
                 state.pop("last_error", None)
-                say("Draft PR уже существует: " + pr["url"])
-                return
+                emit("Draft PR уже существует: " + pr["url"])
+                return OperationResult(state["phase"], run_dir, assert_worktree(state), state.get("pr"))
 
             selected_profile = resolve_profile(config, card)
             configure_cycle(config, state, selected_profile, args, run_dir)
@@ -155,14 +151,18 @@ def run_workflow(args):
             write_json(state_path, state)
 
             if args.local_only:
-                say("Готово локально. Worktree: " + state["worktree"])
-                say("Состояние и логи: " + str(run_dir))
-                return
+                emit("Готово локально. Worktree: " + state["worktree"])
+                emit("Состояние и логи: " + str(run_dir))
+                return OperationResult(state["phase"], run_dir, assert_worktree(state), state.get("pr"))
 
             publish(config, state, card, run_dir, state_path)
         except BaseException as exc:
             state["last_error"] = type(exc).__name__ + ": " + str(exc)
             raise
         finally:
-            update_reports(state, run_dir, announce=True)
-            write_json(state_path, state)
+            try:
+                update_reports(state, run_dir, announce=True)
+            finally:
+                write_json(state_path, state)
+
+    return OperationResult(state["phase"], run_dir, assert_worktree(state), state.get("pr"))

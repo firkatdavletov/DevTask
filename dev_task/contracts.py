@@ -133,7 +133,7 @@ def validate_commit_message(value):
             and len(subject.splitlines()) == 1
             and not any(ord(char) < 32 or ord(char) == 127 for char in subject)
             and re.search(r"[А-Яа-яЁё]", subject)
-            and not re.match(r"(?:KRMA|AAS)-[0-9]+", subject),
+            and not re.match(r"[A-Z][A-Z0-9]*-[0-9]+", subject),
             "Сообщение коммита: нужна одна строка на русском до 160 символов без номера Jira.")
     return value
 

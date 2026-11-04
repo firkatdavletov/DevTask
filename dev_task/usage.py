@@ -10,6 +10,9 @@ import subprocess
 import time
 
 
+from .events import process_environment
+
+
 TOKEN_FIELDS = ("input_tokens", "output_tokens", "cached_input_tokens")
 
 
@@ -109,7 +112,7 @@ def subscription_snapshot(config, cwd, log):
         with log.open("w", encoding="utf-8") as stderr:
             process = subprocess.Popen([config["codex_bin"], "app-server", *overrides], cwd=cwd,
                                        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=stderr,
-                                       start_new_session=True)
+                                       start_new_session=True, env=process_environment())
             def send(message):
                 process.stdin.write((json.dumps(message) + "\n").encode())
                 process.stdin.flush()

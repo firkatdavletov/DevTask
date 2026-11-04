@@ -15,6 +15,7 @@ from .contracts import (
     validate_result,
     validate_review,
 )
+from .events import emit
 from .errors import TaskError, require
 from .plan_context import continuation_context, plan_context
 from .processes import capture
@@ -132,6 +133,7 @@ def fix_review_findings(config, state, task_text, card_path, attempt, state_path
     state.setdefault("review_fix_history", []).append(record)
     state.update(review_fix_attempts=count + 1, pending_review_fix=True)
     write_json(state_path, state)
+    emit(kind="retry", stage="review_fix", iteration=count + 1, limit=limit, directory=str(directory))
     previous = state.get("result")
     candidate = dict(state)
     started = time.monotonic()
@@ -165,6 +167,7 @@ def review_with_fixes(config, state, task_text, card_path, attempt, state_path, 
     if state.get("review_skip_reason"):
         require(not state.get("pending_review_fix"), "Незавершённое исправление review блокирует публикацию.")
         state["reviewed_tree"] = state["checked_tree"]
+        emit(kind="stage", stage="review", status="skipped", reason=state["review_skip_reason"])
         return
     while True:
         require(not state.get("pending_review_fix"), "Незавершённое исправление review. Продолжите через run.")

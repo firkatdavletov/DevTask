@@ -6,7 +6,7 @@ import json
 import os
 from pathlib import Path
 
-from .console import say
+from .events import emit
 from .storage import read_json, write_json
 from .usage import STAGE_NAMES, TOKEN_FIELDS, aggregate_usage, event_usage, limit_changes
 
@@ -182,9 +182,10 @@ def update_reports(state, run_dir, *, announce=False):
         temporary.write_text("\n".join(lines) + "\n", encoding="utf-8")
         os.replace(temporary, run_dir / "report.md")
         state["usage"] = {"total": report["total"], "stages": report["stages"]}
+    emit(kind="report", status="updated", report_path=str(run_dir / "report.md"), run_dir=str(run_dir))
     if announce:
-        say("Токены Codex: " + token_text(report["total"]["tokens"]))
-        say("Отчёт: " + str(run_dir / "report.md"))
+        emit("Токены Codex: " + token_text(report["total"]["tokens"]))
+        emit("Отчёт: " + str(run_dir / "report.md"))
     return report
 
 
@@ -213,4 +214,5 @@ def update_branch_review_report(state, run_dir):
         for change in session["limit_usage"]:
             lines.append(f"Лимит {change['limit_id']}: {change['consumed_percentage_points']} п.п.")
     (run_dir / "report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    emit(kind="report", status="updated", report_path=str(run_dir / "report.md"), run_dir=str(run_dir))
     return report

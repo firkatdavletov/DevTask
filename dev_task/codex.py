@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 
-from .console import say
+from .events import emit
 from .errors import require
 from .processes import execute
 from .repository import assert_worktree
@@ -23,7 +23,9 @@ def launch_codex(config, state, directory, stage, prompt, schema, validator, san
     argv = [config["codex_bin"], "exec", "--model", profile["model"],
             "-c", "model_reasoning_effort=" + profile["effort"], "--sandbox", sandbox, "--json",
             "--output-schema", str(schema_path), "-o", str(result_path), *args, "-"]
-    say(f"Codex {STAGE_NAMES[stage]}. Журнал: {directory / 'events.jsonl'}")
+    emit(f"Codex {STAGE_NAMES[stage]}. Журнал: {directory / 'events.jsonl'}",
+         kind="agent", stage=stage, status="started", directory=str(directory),
+         model=profile["model"], effort=profile["effort"])
     with tracked_session(config, state, directory, worktree, stage) as record:
         record.update(model=profile["model"], effort=profile["effort"], cycle_id=state["cycle_id"])
         code = execute(argv, worktree, directory / "events.jsonl", config["codex_timeout_seconds"],

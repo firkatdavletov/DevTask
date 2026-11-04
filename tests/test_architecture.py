@@ -7,38 +7,43 @@ import unittest
 PACKAGE = Path(__file__).resolve().parents[1] / "dev_task"
 ALLOWED_IMPORTS = {
     "console": set(),
+    "events": set(),
+    "models": set(),
+    "__main__": {"cli"},
+    "api": {"branch_review", "config", "errors", "events", "models", "processes", "storage", "workflow"},
     "errors": set(),
     "storage": set(),
-    "usage": set(),
+    "usage": {"events"},
     "card": {"errors"},
     "config": {"errors", "storage"},
     "contracts": {"errors"},
-    "processes": {"errors"},
-    "state": {"errors", "storage"},
+    "processes": {"errors", "events"},
+    "state": {"errors", "storage", "models"},
     "repository": {"errors", "processes", "storage"},
     "github": {"errors", "processes"},
     "plan_context": {"errors", "storage"},
-    "reports": {"console", "storage", "usage"},
-    "sessions": {"errors", "reports", "storage", "usage"},
-    "codex": {"console", "errors", "processes", "repository", "sessions", "storage", "usage"},
+    "reports": {"events", "storage", "usage"},
+    "sessions": {"events", "errors", "reports", "storage", "usage"},
+    "codex": {"events", "errors", "processes", "repository", "sessions", "storage", "usage"},
     "coding": {"codex", "contracts", "errors", "plan_context", "processes", "repository", "storage"},
-    "planning": {"codex", "contracts", "errors", "plan_context", "repository", "storage", "usage"},
-    "checks": {"coding", "console", "contracts", "errors", "processes", "repository", "storage"},
+    "planning": {"events", "codex", "contracts", "errors", "plan_context", "repository", "storage", "usage"},
+    "checks": {"coding", "events", "contracts", "errors", "processes", "repository", "storage"},
     "review": {
+        "events",
         "checks", "codex", "contracts", "errors", "plan_context", "processes",
         "repository", "storage", "usage",
     },
     "publishing": {
-        "codex", "config", "console", "contracts", "errors", "github", "plan_context",
+        "codex", "config", "events", "contracts", "errors", "github", "plan_context",
         "processes", "repository", "storage",
     },
     "workflow": {
-        "card", "checks", "coding", "config", "console", "errors", "github",
+        "card", "checks", "coding", "config", "events", "errors", "github",
         "plan_context", "planning", "publishing", "reports", "repository", "review",
-        "state", "storage",
+        "state", "storage", "models", "processes",
     },
-    "branch_review": {"codex", "config", "console", "contracts", "errors", "processes", "reports", "repository", "storage"},
-    "cli": {"console", "errors", "workflow", "branch_review"},
+    "branch_review": {"models", "codex", "config", "events", "contracts", "errors", "processes", "reports", "repository", "storage"},
+    "cli": {"console", "errors", "api", "models"},
 }
 
 
@@ -101,3 +106,16 @@ class ArchitectureTest(unittest.TestCase):
         self.assertIsInstance(tree.body[0], ast.Expr)
         self.assertIsInstance(tree.body[0].value, ast.Constant)
         self.assertIsInstance(tree.body[0].value.value, str)
+
+    def test_core_has_no_terminal_dependencies(self):
+        for path in PACKAGE.glob("*.py"):
+            if path.stem in ("cli", "console", "__main__"):
+                continue
+            tree = ast.parse(path.read_text())
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    self.assertNotIn("argparse", {item.name for item in node.names}, path.name)
+                if isinstance(node, ast.Call):
+                    self.assertFalse(isinstance(node.func, ast.Name) and node.func.id in ("print", "input"), path.name)
+                    self.assertFalse(isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name)
+                                     and node.func.value.id == "sys" and node.func.attr == "exit", path.name)

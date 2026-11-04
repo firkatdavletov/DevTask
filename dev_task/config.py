@@ -18,9 +18,16 @@ DEFAULT_PROFILES = {
 }
 
 
-def load_config(path, *, review_only=False):
+def load_config(path, *, project=None, review_only=False):
     config = read_json(path)
     require(isinstance(config, dict), "Конфигурация должна быть JSON-объектом.")
+    if project is not None:
+        config["repo"] = str(project)
+    config.setdefault("env", {})
+    require(isinstance(config["env"], dict) and all(
+        isinstance(k, str) and k and "=" not in k and "\0" not in k
+        and isinstance(v, str) and "\0" not in v for k, v in config["env"].items()),
+        "env: объект строковых переменных окружения.")
     for key in (("repo", "worktrees_root", "runs_root") if review_only else ("repo", "github_repo", "worktrees_root", "runs_root")):
         require(isinstance(config.get(key), str) and config[key], f"Нужен параметр config.{key}.")
     for key in ("repo", "worktrees_root", "runs_root"):

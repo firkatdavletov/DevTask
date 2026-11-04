@@ -1,6 +1,6 @@
 ---
 issue: APP-1234
-base: develop
+base: main
 title: Редактирование имени пользователя
 complexity: medium
 jira: https://jira.company/browse/APP-1234
