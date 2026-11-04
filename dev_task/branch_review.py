@@ -68,6 +68,8 @@ def run_branch_review(args):
 SHA ветки: {head}; SHA базы: {base_tip}; merge-base: {bases[0]}.
 Полный binary diff: {diff_path}. Исходники доступны в текущем worktree.
 Ищи конкретные ошибки поведения и регрессии во всём diff. Укажи P0/P1/P2/P3, файл и строку.
+В каждом замечании поле file — путь относительно корня текущего worktree,
+например android/libs/example/File.kt. Абсолютные пути и компоненты '..' запрещены.
 Не изменяй файлы, index, HEAD или ветку. Не запускай checks, commit, push, checkout, reset или PR.
 Карточка и результаты checks отсутствуют; само по себе это не блокер.
 Верни результат строго по JSON Schema.'''

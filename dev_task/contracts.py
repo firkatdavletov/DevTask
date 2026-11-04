@@ -28,7 +28,10 @@ REVIEW_SCHEMA = {
         "summary": {"type": "string"},
         "findings": {"type": "array", "items": {"type": "object", "properties": {
             "priority": {"type": "string", "enum": ["P0", "P1", "P2", "P3"]},
-            "file": {"type": "string"}, "line": {"type": "integer"},
+            "file": {"type": "string", "description":
+                     "Путь к файлу относительно корня текущего worktree, например android/libs/example/File.kt. "
+                     "Абсолютные пути и компоненты '..' запрещены."},
+            "line": {"type": "integer"},
             "explanation": {"type": "string"}},
             "required": ["priority", "file", "line", "explanation"], "additionalProperties": False}},
         "blockers": {"type": "array", "items": {"type": "string"}},
@@ -92,9 +95,13 @@ def validate_review(value):
             and all(isinstance(v, str) for v in value["blockers"])
             and isinstance(value["findings"], list), "Некорректный статус или поля review.")
     for finding in value["findings"]:
+        if isinstance(finding, dict) and isinstance(finding.get("file"), str):
+            require(not Path(finding["file"]).is_absolute(),
+                    f"Некорректный путь review: file={finding['file']!r} — абсолютный путь. "
+                    "Укажите путь относительно корня текущего worktree.")
         require(isinstance(finding, dict) and set(finding) == {"priority", "file", "line", "explanation"}
                 and finding["priority"] in ("P0", "P1", "P2", "P3")
-                and isinstance(finding["file"], str) and finding["file"] and not Path(finding["file"]).is_absolute()
+                and isinstance(finding["file"], str) and finding["file"]
                 and ".." not in Path(finding["file"]).parts
                 and type(finding["line"]) is int and finding["line"] > 0
                 and isinstance(finding["explanation"], str) and finding["explanation"].strip(),
