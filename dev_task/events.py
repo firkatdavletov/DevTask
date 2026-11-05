@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 import os
+import uuid
 from typing import Callable, Mapping
 
 
@@ -53,3 +54,25 @@ def build_environment(config):
         env.setdefault("ANDROID_HOME", str(config["android_home"]))
     env.update(config.get("env", {}))
     return env
+
+
+_step = ContextVar("dev_task_step", default=None)
+
+
+@contextmanager
+def step(name):
+    """Emit paired operation steps, preserving nesting and original exceptions."""
+    from_id = _step.get()
+    identifier = uuid.uuid4().hex
+    details = {"step_id": identifier, "parent_id": from_id, "name": name}
+    emit(kind="step", status="started", **details)
+    token = _step.set(identifier)
+    try:
+        yield
+    except BaseException as exc:
+        emit(kind="step", status="interrupted" if isinstance(exc, KeyboardInterrupt) else "failed", **details)
+        raise
+    else:
+        emit(kind="step", status="completed", **details)
+    finally:
+        _step.reset(token)

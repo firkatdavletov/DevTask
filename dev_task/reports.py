@@ -6,7 +6,7 @@ import json
 import os
 from pathlib import Path
 
-from .events import emit
+from .events import step, emit
 from .storage import read_json, write_json
 from .usage import STAGE_NAMES, TOKEN_FIELDS, aggregate_usage, event_usage, limit_changes
 
@@ -64,6 +64,7 @@ def token_text(tokens):
     return "неизвестно" if value is None else str(value) + (" (неполные данные)" if tokens["status"] != "complete" else "")
 
 
+@step('Формирование отчёта')
 def update_reports(state, run_dir, *, announce=False):
     if state.get("mode") == "branch_review":
         return update_branch_review_report(state, run_dir)

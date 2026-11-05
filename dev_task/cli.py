@@ -11,7 +11,8 @@ try:
 except ImportError:
     sys.exit("Установите зависимости: python3 -m pip install -r requirements.txt")
 
-from .console import say
+from .console import say, ProgressRenderer
+from .events import step, ExecutionContext
 from .errors import TaskError, require
 from .api import Orchestrator, load_project
 from .models import ReviewRequest, RunRequest, TaskRequest
@@ -45,24 +46,23 @@ def parse_args(argv=None):
     return args
 
 
-def render_event(event):
-    if event.message:
-        say(event.message)
-
-
 def main(argv=None):
     args = None
     report_path = None
+    renderer = None
 
     def on_event(event):
         nonlocal report_path
         if event.kind == "report" and event.status == "updated":
             report_path = Path(event.details["report_path"])
-        render_event(event)
+        renderer(event)
 
     try:
         args = parse_args(argv)
-        project = load_project(args.project if args.project is not None else Path.cwd(), args.config, offline=args.command == "report")
+        renderer = ProgressRenderer()
+        renderer.start()
+        with ExecutionContext(args.command, on_event).activate(), step("Загрузка проекта"):
+            project = load_project(args.project if args.project is not None else Path.cwd(), args.config, offline=args.command == "report")
         orchestrator = Orchestrator(project, on_event=on_event)
         if args.command == "review":
             result = orchestrator.review(ReviewRequest(str(args.card), args.base))
@@ -74,13 +74,19 @@ def main(argv=None):
         report_path = result.report_path
         return 0
     except KeyboardInterrupt:
+        if renderer:
+            renderer.close()
         say("Остановлено. Результаты review сохранены." if args and args.command == "review"
             else "Остановлено. Worktree и состояние сохранены.")
         return 130
     except (TaskError, OSError, ValueError, yaml.YAMLError, subprocess.SubprocessError) as exc:
+        if renderer:
+            renderer.close()
         print("dev-task: " + str(exc), file=sys.stderr)
         return 1
     finally:
+        if renderer:
+            renderer.close()
         if report_path is not None:
             try:
                 with report_path.open(encoding="utf-8", newline="") as report:

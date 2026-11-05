@@ -6,7 +6,7 @@ import subprocess
 import time
 
 from .errors import require
-from .events import emit
+from .events import step, emit
 from .reports import update_reports
 from .storage import write_json
 from .usage import event_usage, subscription_snapshot
@@ -24,7 +24,8 @@ def tracked_session(config, state, directory, worktree, stage):
     usage_path = directory / "usage.json"
     write_json(usage_path, record)
     try:
-        record["limits_before"] = subscription_snapshot(config, worktree, directory / "limits-before.stderr.log")
+        with step('Получение лимитов до сессии'):
+            record["limits_before"] = subscription_snapshot(config, worktree, directory / "limits-before.stderr.log")
         write_json(usage_path, record)
         yield record
     except BaseException as exc:
@@ -35,7 +36,8 @@ def tracked_session(config, state, directory, worktree, stage):
         raise
     finally:
         record["finished_at"] = time.time()
-        record["limits_after"] = subscription_snapshot(config, worktree, directory / "limits-after.stderr.log")
+        with step('Получение лимитов после сессии'):
+            record["limits_after"] = subscription_snapshot(config, worktree, directory / "limits-after.stderr.log")
         record["tokens"], record["session_id"] = event_usage(directory / "events.jsonl", record["status"])
         write_json(usage_path, record)
         update_reports(state, run_dir)

@@ -49,6 +49,23 @@ class ApiTest(unittest.TestCase):
         self.assertTrue(result.report_path.is_file())
         self.assertEqual(events[0].status, "started")
         self.assertEqual(events[-1].status, "completed")
+        steps = [e for e in events if e.kind == "step"]
+        names = [e.details["name"] for e in steps if e.status == "started"]
+        self.assertLess(names.index("Проверка конфигурации"), names.index("Чтение карточки задачи"))
+        self.assertLess(names.index("Получение изменений из Git"), names.index("Создание worktree"))
+        self.assertLess(names.index("Создание worktree"), names.index("Разработка"))
+        self.assertIn("Сохранение состояния", names)
+        active = set()
+        for event in steps:
+            identifier = event.details["step_id"]
+            if event.status == "started":
+                if event.details["parent_id"] is not None:
+                    self.assertIn(event.details["parent_id"], active)
+                active.add(identifier)
+            else:
+                self.assertIn(identifier, active)
+                active.remove(identifier)
+        self.assertFalse(active)
         self.assertTrue(any(e.kind == "check" and e.status == "passed" for e in events))
         self.assertTrue(any(e.kind == "agent" and e.stage == "coding" for e in events))
         with patch.dict(os.environ, self.env, clear=True):

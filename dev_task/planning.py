@@ -8,13 +8,14 @@ import subprocess
 from .codex import launch_codex
 from .contracts import PLANNING_SCHEMA, validate_planning
 from .errors import require
-from .events import emit
+from .events import step, emit
 from .plan_context import continuation_context, require_planning
 from .repository import assert_worktree, readonly_snapshot
 from .storage import file_digest, read_json, write_json
 from .usage import event_usage
 
 
+@step('Планирование')
 def planning_once(config, state, task_text, card_path, attempt, state_path):
     if state["planning_status"] == "skipped":
         emit(kind="stage", stage="planning", status="skipped", reason=state.get("planning_skip_reason"))

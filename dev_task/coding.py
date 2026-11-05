@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 
+from .events import step
 from .codex import launch_codex
 from .contracts import RESULT_CONTRACT, RESULT_SCHEMA, validate_result
 from .errors import require
@@ -12,6 +13,7 @@ from .repository import assert_worktree
 from .storage import write_json
 
 
+@step('Разработка')
 def implement(config, state, task_text, card_path, attempt, *, check_failure=None):
     worktree = assert_worktree(state)
     prompt = f"""Выполни задачу из карточки ниже в текущем worktree. Следуй AGENTS.md.

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 
-from .events import emit
+from .events import step, emit
 from .errors import require
 from .processes import execute
 from .repository import assert_worktree
@@ -12,7 +12,8 @@ from .usage import STAGE_NAMES, event_usage
 
 
 def launch_codex(config, state, directory, stage, prompt, schema, validator, sandbox, *, profile=None):
-    worktree = assert_worktree(state)
+    with step('Подготовка сессии агента'):
+        worktree = assert_worktree(state)
     directory.mkdir(parents=True, exist_ok=True)
     schema_path, result_path = directory / "schema.json", directory / "result.json"
     write_json(schema_path, schema)
@@ -28,13 +29,15 @@ def launch_codex(config, state, directory, stage, prompt, schema, validator, san
          model=profile["model"], effort=profile["effort"])
     with tracked_session(config, state, directory, worktree, stage) as record:
         record.update(model=profile["model"], effort=profile["effort"], cycle_id=state["cycle_id"])
-        code = execute(argv, worktree, directory / "events.jsonl", config["codex_timeout_seconds"],
-                       input_text=prompt, stderr_log=directory / "codex.stderr.log")
+        with step(f"{STAGE_NAMES[stage]} · модель: {profile['model']} · глубина: {profile['effort']}"):
+            code = execute(argv, worktree, directory / "events.jsonl", config["codex_timeout_seconds"],
+                           input_text=prompt, stderr_log=directory / "codex.stderr.log")
+            require(code == 0, f"Codex завершился с кодом {code}. См. {directory / 'codex.stderr.log'}")
         record["exit_code"] = code
         _, session_id = event_usage(directory / "events.jsonl", "running")
         if session_id:
             state["session_id"] = session_id
-        require(code == 0, f"Codex завершился с кодом {code}. См. {directory / 'codex.stderr.log'}")
-        result = validator(read_json(result_path))
+        with step('Обработка результата агента'):
+            result = validator(read_json(result_path))
         record["status"] = result["status"]
         return result

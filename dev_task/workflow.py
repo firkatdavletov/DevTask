@@ -10,7 +10,7 @@ from .checks import run_steps, verify_with_fixes
 from .coding import implement
 from .config import resolve_profile
 from .models import OperationResult, WorkflowRequest
-from .events import emit
+from .events import step, emit
 from .errors import require
 from .github import find_pr
 from .plan_context import require_planning
@@ -76,8 +76,9 @@ def run_workflow(args: WorkflowRequest, config) -> OperationResult:
         update_reports(read_json(state_path), run_dir, announce=True)
         return OperationResult("reported", run_dir)
     # Готовит каталог запуска и блокирует параллельный запуск
-    for executable in ("git", "gh") + ((config["codex_bin"],) if args.command == "run" else ()):
-        require(executable_path(executable), f"Команда не найдена: {executable}")
+    with step('Проверка инструментов'):
+        for executable in ("git", "gh") + ((config["codex_bin"],) if args.command == "run" else ()):
+            require(executable_path(executable), f"Команда не найдена: {executable}")
     require(repo.is_dir(), "Каталог репозитория не найден.")
     for directory in (config["worktrees_root"], config["runs_root"]):
         require(not directory.is_relative_to(repo), "worktrees_root и runs_root должны находиться вне checkout.")
@@ -163,6 +164,7 @@ def run_workflow(args: WorkflowRequest, config) -> OperationResult:
             try:
                 update_reports(state, run_dir, announce=True)
             finally:
-                write_json(state_path, state)
+                with step("Сохранение состояния"):
+                    write_json(state_path, state)
 
     return OperationResult(state["phase"], run_dir, assert_worktree(state), state.get("pr"))

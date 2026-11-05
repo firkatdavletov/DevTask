@@ -4,9 +4,11 @@ from __future__ import annotations
 import re
 import yaml
 
+from .events import step
 from .errors import require
 
 
+@step('Чтение карточки задачи')
 def read_card(path):
     text = path.read_text(encoding="utf-8")
     parts = text.splitlines(keepends=True)

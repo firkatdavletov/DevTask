@@ -8,7 +8,7 @@ import uuid
 from .codex import launch_codex
 from .config import resolve_review_profile
 from .models import OperationResult, ReviewRequest
-from .events import emit
+from .events import step, emit
 from .contracts import REVIEW_SCHEMA, blocking_findings, validate_review
 from .errors import TaskError, require
 from .processes import executable_path, capture
@@ -17,6 +17,7 @@ from .repository import git, readonly_snapshot, repository_lock
 from .storage import write_json
 
 
+@step('Review удалённой ветки')
 def run_branch_review(args: ReviewRequest, config) -> OperationResult:
     profile = resolve_review_profile(config)
     repo = config['repo']
@@ -43,13 +44,15 @@ def run_branch_review(args: ReviewRequest, config) -> OperationResult:
     with repository_lock(repo):
         run_dir.mkdir(parents=True)
         try:
-            git(repo, 'fetch', '--no-tags', '--no-write-fetch-head', '--refmap=', config['remote'],
-                f'+refs/heads/{branch}:{refs[0]}', f'+refs/heads/{base}:{refs[1]}')
+            with step('Получение веток из Git'):
+                git(repo, 'fetch', '--no-tags', '--no-write-fetch-head', '--refmap=', config['remote'],
+                    f'+refs/heads/{branch}:{refs[0]}', f'+refs/heads/{base}:{refs[1]}')
             head, base_tip = [git(repo, 'rev-parse', ref + '^{commit}') for ref in refs]
             bases = capture(['git', 'merge-base', '--all', head, base_tip], repo, ok=False).stdout.splitlines()
             require(len(bases) == 1, 'Нет единственного merge-base между удалёнными ветками.')
             state.update(head_sha=head, base_tip_sha=base_tip, base_sha=bases[0], cycle_base_sha=head)
-            diff = capture(['git', 'diff', '--binary', '--no-renames', bases[0], head], repo).stdout
+            with step('Подготовка diff'):
+                diff = capture(['git', 'diff', '--binary', '--no-renames', bases[0], head], repo).stdout
             diff_path = run_dir / 'review.diff'
             diff_path.write_text(diff, encoding='utf-8')
             write_json(run_dir / 'review-context.json', state)
@@ -57,7 +60,8 @@ def run_branch_review(args: ReviewRequest, config) -> OperationResult:
                 state['review_result'] = {'status': 'reviewed', 'summary': 'Изменений нет.', 'findings': [], 'blockers': []}
             else:
                 worktree.parent.mkdir(parents=True, exist_ok=True)
-                git(repo, 'worktree', 'add', '--detach', str(worktree), head)
+                with step('Создание worktree'):
+                    git(repo, 'worktree', 'add', '--detach', str(worktree), head)
                 require(not git(worktree, 'status', '--porcelain', '--untracked-files=all'),
                         'Созданный worktree отличается от удалённого commit.')
                 # launch_codex validates branch and HEAD through the shared invariant.
@@ -95,7 +99,8 @@ SHA ветки: {head}; SHA базы: {base_tip}; merge-base: {bases[0]}.
                              and not git(worktree, 'branch', '--show-current')
                              and not git(worktree, 'status', '--porcelain', '--untracked-files=all', '--ignored'))
                     if clean:
-                        git(repo, 'worktree', 'remove', str(worktree))
+                        with step('Удаление временного worktree'):
+                            git(repo, 'worktree', 'remove', str(worktree))
                     else:
                         state['retained_worktree'] = True
                         emit('Сохранён изменённый worktree: ' + str(worktree))
@@ -104,9 +109,11 @@ SHA ветки: {head}; SHA базы: {base_tip}; merge-base: {bases[0]}.
                 state['cleanup_error'] = str(exc)
                 emit('Worktree сохранён: ' + str(worktree))
             finally:
-                for ref in refs:
-                    capture(['git', 'update-ref', '-d', ref], repo, ok=False)
-                write_json(run_dir / 'state.json', state)
+                with step('Очистка временных ссылок'):
+                    for ref in refs:
+                        capture(['git', 'update-ref', '-d', ref], repo, ok=False)
+                with step('Сохранение состояния review'):
+                    write_json(run_dir / 'state.json', state)
                 update_reports(state, run_dir)
                 emit('Отчёт review: ' + str(run_dir / 'report.md'))
 

@@ -14,18 +14,18 @@ ALLOWED_IMPORTS = {
     "errors": set(),
     "storage": set(),
     "usage": {"events"},
-    "card": {"errors"},
-    "config": {"errors", "storage"},
+    "card": {"errors", "events"},
+    "config": {"errors", "storage", "events"},
     "contracts": {"errors"},
     "processes": {"errors", "events"},
     "state": {"errors", "storage", "models"},
-    "repository": {"errors", "processes", "storage"},
+    "repository": {"errors", "processes", "storage", "events"},
     "github": {"errors", "processes"},
     "plan_context": {"errors", "storage"},
     "reports": {"events", "storage", "usage"},
     "sessions": {"events", "errors", "reports", "storage", "usage"},
     "codex": {"events", "errors", "processes", "repository", "sessions", "storage", "usage"},
-    "coding": {"codex", "contracts", "errors", "plan_context", "processes", "repository", "storage"},
+    "coding": {"events", "codex", "contracts", "errors", "plan_context", "processes", "repository", "storage"},
     "planning": {"events", "codex", "contracts", "errors", "plan_context", "repository", "storage", "usage"},
     "checks": {"coding", "events", "contracts", "errors", "processes", "repository", "storage"},
     "review": {
@@ -43,7 +43,7 @@ ALLOWED_IMPORTS = {
         "state", "storage", "models", "processes",
     },
     "branch_review": {"models", "codex", "config", "events", "contracts", "errors", "processes", "reports", "repository", "storage"},
-    "cli": {"console", "errors", "api", "models"},
+    "cli": {"console", "errors", "api", "models", "events"},
 }
 
 

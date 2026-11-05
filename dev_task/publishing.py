@@ -9,7 +9,7 @@ from pathlib import Path
 
 from .codex import launch_codex
 from .config import DEFAULT_MODELS
-from .events import emit
+from .events import step, emit
 from .contracts import COMMIT_MESSAGE_SCHEMA, blocking_findings, validate_commit_message
 from .errors import TaskError, require
 from .github import find_pr, gh
@@ -25,6 +25,7 @@ from .repository import (
 from .storage import write_json
 
 
+@step('Подготовка сообщения коммита')
 def commit_message(config, state, card, state_path):
     match = re.match(r"[A-Z][A-Z0-9]*-[1-9][0-9]*(?=-|$)", card["issue"])
     issue = match.group() if match else card["issue"]
@@ -66,6 +67,7 @@ def commit_message(config, state, card, state_path):
     return message
 
 
+@step('Git commit')
 def commit_changes(config, state, worktree, message):
     argv = ["git"]
     hooks = capture(["git", "config", "--path", "--get", "core.hooksPath"], worktree, ok=False)
@@ -87,6 +89,7 @@ def commit_changes(config, state, worktree, message):
     require(code == 0, f"Команда git commit завершилась с кодом {code}. Журнал: {log}")
 
 
+@step('Публикация')
 def publish(config, state, card, run_dir, state_path):
     worktree = assert_worktree(state)
     assert_remote(config)
@@ -100,7 +103,8 @@ def publish(config, state, card, run_dir, state_path):
     require(git(worktree, "write-tree") == state["checked_tree"], "Index изменился после проверок.")
     require(capture(["git", "diff", "--quiet"], worktree, ok=False).returncode == 0 and
             not git(worktree, "ls-files", "--others", "--exclude-standard"), "Файлы изменились после проверок.")
-    existing = find_pr(config, state)
+    with step('Поиск Draft PR'):
+        existing = find_pr(config, state)
     if state.get("continuation"):
         require(existing is not None, "Сохранённый PR не найден; создание нового PR отключено.")
         assert_published_remote(config, state)
@@ -129,12 +133,14 @@ def publish(config, state, card, run_dir, state_path):
     if state.get("continuation"):
         require(find_pr(config, state) is not None, "Сохранённый PR не найден.")
         assert_published_remote(config, state)
-    git(worktree, "push", "-u", config["remote"], f"HEAD:refs/heads/{state['branch']}")
+    with step('Отправка ветки в Git'):
+        git(worktree, "push", "-u", config["remote"], f"HEAD:refs/heads/{state['branch']}")
     if existing:
         pr = existing
     else:
-        gh(config, worktree, "pr", "create", "--draft", "--base", state["base"], "--head", state["branch"],
-           "--title", f"{card['issue']}: {card['title']}", "--body-file", str(body_path))
+        with step('Создание Draft PR'):
+            gh(config, worktree, "pr", "create", "--draft", "--base", state["base"], "--head", state["branch"],
+               "--title", f"{card['issue']}: {card['title']}", "--body-file", str(body_path))
         pr = find_pr(config, state)
         require(pr is not None, "PR создан, но не найден повторным запросом. Повторите publish.")
     state.update(phase="published", pr=pr, last_published_sha=state["commit_sha"], cycle_outcome="published")

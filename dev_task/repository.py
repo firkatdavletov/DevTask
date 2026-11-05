@@ -11,6 +11,7 @@ import stat
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from .events import step
 from .errors import TaskError, require
 from .processes import capture
 from .storage import file_digest, read_json, resolve_path, write_json
@@ -25,7 +26,8 @@ def repository_lock(repo):
     common = resolve_path(git(repo, "rev-parse", "--git-common-dir"), repo)
     with (common / "dev-task.lock").open("a") as lock:
         try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            with step("Получение блокировки репозитория"):
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             raise TaskError("Для этого репозитория уже работает dev-task.")
         try:
@@ -59,6 +61,7 @@ def assert_worktree(state):
     return worktree
 
 
+@step('Проверка Git remote')
 def assert_remote(config):
     repo, remote = config["repo"], config["remote"]
     urls = git(repo, "remote", "get-url", "--all", remote).splitlines()
@@ -67,6 +70,7 @@ def assert_remote(config):
             "github_repo не совпадает с одним из fetch/push URL Git remote.")
 
 
+@step('Копирование локальных файлов')
 def copy_pending_local_files(state, state_path):
     if state.get("local_files_copied") is not False:
         return
@@ -76,6 +80,7 @@ def copy_pending_local_files(state, state_path):
     write_json(state_path, state)
 
 
+@step('Подготовка worktree')
 def prepare(config, card, run_dir, state_path):
     repo, remote = config["repo"], config["remote"]
     require(git(repo, "rev-parse", "--show-toplevel") == str(repo), "config.repo должен быть корнем checkout.")
@@ -83,7 +88,8 @@ def prepare(config, card, run_dir, state_path):
             capture(["git", "check-ref-format", "refs/heads/" + card["base"]], repo, ok=False).returncode == 0,
             "Некорректная базовая ветка.")
     assert_remote(config)
-    git(repo, "fetch", "--prune", remote)
+    with step('Получение изменений из Git'):
+        git(repo, "fetch", "--prune", remote)
     ref = f"refs/remotes/{remote}/{card['base']}"
     base_sha = git(repo, "rev-parse", "--verify", ref + "^{commit}")
     if state_path.exists():
@@ -91,7 +97,8 @@ def prepare(config, card, run_dir, state_path):
         for key, expected in (("repo", str(repo)), ("base", card["base"]), ("issue", card["issue"]),
                               ("remote", remote), ("github_repo", config["github_repo"])):
             require(state.get(key) == expected, f"Сохранённая задача имеет другое поле {key}.")
-        assert_worktree(state)
+        with step("Восстановление worktree"):
+            assert_worktree(state)
         copy_pending_local_files(state, state_path)
         return state
     branch = "feature/" + card["issue"]
@@ -102,7 +109,8 @@ def prepare(config, card, run_dir, state_path):
             "Локальная ветка уже существует без состояния dev-task.")
     require(not git(repo, "ls-remote", "--heads", remote, "refs/heads/" + branch), "Ветка уже существует на remote. Автоматический перехват отключён.")
     worktree.parent.mkdir(parents=True, exist_ok=True)
-    git(repo, "worktree", "add", "-b", branch, str(worktree), base_sha)
+    with step('Создание worktree'):
+        git(repo, "worktree", "add", "-b", branch, str(worktree), base_sha)
     state = {"issue": card["issue"], "repo": str(repo), "remote": remote, "github_repo": config["github_repo"],
              "base": card["base"], "base_sha": base_sha, "branch": branch, "worktree": str(worktree), "phase": "prepared",
              "local_files_copied": False}

@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 
 from .coding import implement
-from .events import emit
+from .events import step, emit
 from .contracts import merge_implementation_results
 from .errors import CheckFailed, TaskError, require
 from .processes import capture, execute
@@ -29,8 +29,14 @@ def run_steps(steps, worktree, attempt, prefix):
         started = time.monotonic()
         try:
             code = execute(step["argv"], worktree, log, step["timeout_seconds"])
+        except KeyboardInterrupt:
+            emit(kind="check", stage=prefix, status="interrupted", name=step["name"])
+            raise
         except subprocess.TimeoutExpired:
             code = 124
+        except BaseException:
+            emit(kind="check", stage=prefix, status="failed", name=step["name"])
+            raise
         evidence.append({"name": step["name"], "argv": step["argv"], "exit_code": code,
                          "seconds": round(time.monotonic() - started, 2), "log": str(log)})
         write_json(attempt / f"{prefix}.json", evidence)
@@ -41,6 +47,7 @@ def run_steps(steps, worktree, attempt, prefix):
     return evidence
 
 
+@step('Обязательные проверки')
 def verify(config, state, attempt):
     state.pop("checked_tree", None)
     state.pop("checks", None)

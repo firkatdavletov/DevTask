@@ -15,7 +15,7 @@ from .contracts import (
     validate_result,
     validate_review,
 )
-from .events import emit
+from .events import step, emit
 from .errors import TaskError, require
 from .plan_context import continuation_context, plan_context
 from .processes import capture
@@ -94,6 +94,7 @@ def review_once(config, state, task_text, card_path, attempt, state_path):
         write_json(state_path, state)
 
 
+@step('Исправление замечаний review')
 def fix_review_findings(config, state, task_text, card_path, attempt, state_path):
     require(not state.get("commit_sha"), "После коммита исправления review отключены.")
     worktree = assert_worktree(state)
@@ -163,6 +164,7 @@ def fix_review_findings(config, state, task_text, card_path, attempt, state_path
         write_json(state_path, state)
 
 
+@step('Review')
 def review_with_fixes(config, state, task_text, card_path, attempt, state_path, *, allow_sessions):
     if state.get("review_skip_reason"):
         require(not state.get("pending_review_fix"), "Незавершённое исправление review блокирует публикацию.")

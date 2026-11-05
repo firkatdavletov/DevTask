@@ -92,7 +92,10 @@ class CliTest(unittest.TestCase):
             argv = [command, "card.md"] + (["--base", "main"] if command == "review" else [])
             with contextlib.redirect_stdout(io.StringIO()) as stdout, contextlib.redirect_stderr(io.StringIO()) as stderr:
                 code = main(argv)
-            return code, stdout.getvalue(), stderr.getvalue()
+            output = stdout.getvalue()
+            self.assertIn("[Начато] Загрузка проекта\n", output)
+            output = "\n".join(line for line in output.split("\n") if not line.startswith(("[Начато] Загрузка проекта", "[Готово] Загрузка проекта")))
+            return code, output, stderr.getvalue()
 
     def test_all_commands_print_result_report_after_progress(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -103,7 +106,7 @@ class CliTest(unittest.TestCase):
                 with self.subTest(command=command):
                     code, stdout, stderr = self.run_with_report(command, run_dir)
                     self.assertEqual(code, 0)
-                    self.assertEqual(stdout, "Завершение операции\n" + content)
+                    self.assertTrue(stdout.endswith("Завершение операции\n" + content))
                     self.assertEqual(stderr, "")
 
     def test_only_latest_report_is_printed_on_success_error_and_interrupt(self):

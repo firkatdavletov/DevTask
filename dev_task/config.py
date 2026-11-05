@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import re
 
+from .events import step
 from .errors import TaskError, require
 from .storage import read_json, resolve_path
 
@@ -18,6 +19,7 @@ DEFAULT_PROFILES = {
 }
 
 
+@step('Проверка конфигурации')
 def load_config(path, *, project=None, review_only=False):
     config = read_json(path)
     require(isinstance(config, dict), "Конфигурация должна быть JSON-объектом.")
