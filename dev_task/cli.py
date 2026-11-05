@@ -52,17 +52,26 @@ def render_event(event):
 
 def main(argv=None):
     args = None
+    report_path = None
+
+    def on_event(event):
+        nonlocal report_path
+        if event.kind == "report" and event.status == "updated":
+            report_path = Path(event.details["report_path"])
+        render_event(event)
+
     try:
         args = parse_args(argv)
         project = load_project(args.project if args.project is not None else Path.cwd(), args.config, offline=args.command == "report")
-        orchestrator = Orchestrator(project, on_event=render_event)
+        orchestrator = Orchestrator(project, on_event=on_event)
         if args.command == "review":
-            orchestrator.review(ReviewRequest(str(args.card), args.base))
+            result = orchestrator.review(ReviewRequest(str(args.card), args.base))
         elif args.command == "run":
-            orchestrator.run(RunRequest(args.card, local_only=args.local_only, continue_pr=args.continue_pr,
+            result = orchestrator.run(RunRequest(args.card, local_only=args.local_only, continue_pr=args.continue_pr,
                                         rerun=args.rerun, skip_review=args.skip_review, skip_planning=args.skip_planning))
         else:
-            getattr(orchestrator, args.command)(TaskRequest(args.card))
+            result = getattr(orchestrator, args.command)(TaskRequest(args.card))
+        report_path = result.report_path
         return 0
     except KeyboardInterrupt:
         say("Остановлено. Результаты review сохранены." if args and args.command == "review"
@@ -71,3 +80,12 @@ def main(argv=None):
     except (TaskError, OSError, ValueError, yaml.YAMLError, subprocess.SubprocessError) as exc:
         print("dev-task: " + str(exc), file=sys.stderr)
         return 1
+    finally:
+        if report_path is not None:
+            try:
+                with report_path.open(encoding="utf-8", newline="") as report:
+                    content = report.read()
+            except (OSError, UnicodeError) as exc:
+                print("dev-task: Не удалось прочитать отчёт " + str(report_path) + ": " + str(exc), file=sys.stderr)
+            else:
+                print(content, end="", flush=True)

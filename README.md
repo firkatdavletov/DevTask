@@ -213,6 +213,12 @@ review отчёт указывает «качество не оценивало�
 dev-task report android-tasks/APP-1/task.md --config config.json
 ```
 
+После завершения `run`, `publish`, `report` и `review` CLI один раз выводит
+полное содержимое итогового `report.md` в stdout. При ошибке или Ctrl+C отчёт
+также выводится, если он сформирован в текущем вызове. Ошибка чтения отчёта
+выводится в stderr и сохраняет код завершения команды. При использовании
+Python API автоматического вывода в консоль нет.
+
 Подробные команды и пути к журналам описаны в [WORKFLOW.md](WORKFLOW.md).
 
 Результаты coding, check-fix и review-fix содержат `status`, `summary`,

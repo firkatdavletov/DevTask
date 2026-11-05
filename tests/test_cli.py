@@ -13,6 +13,8 @@ import yaml
 
 from dev_task.cli import main
 from dev_task.errors import TaskError
+from dev_task.events import ProgressEvent
+from dev_task.models import OperationResult
 
 
 SCRIPT = Path(__file__).resolve().parents[1] / "dev-task"
@@ -65,11 +67,95 @@ class CliTest(unittest.TestCase):
                 workflow.assert_not_called()
 
     def test_main_accepts_explicit_arguments(self):
-        with patch("dev_task.cli.Orchestrator.run") as workflow:
+        with tempfile.TemporaryDirectory() as directory, patch("dev_task.cli.Orchestrator.run") as workflow:
+            run_dir = Path(directory)
+            (run_dir / "report.md").write_text("", encoding="utf-8")
+            workflow.return_value = OperationResult("completed", run_dir)
             self.assertEqual(main([*ARGS, "--local-only"]), 0)
         args = workflow.call_args.args[0]
         self.assertEqual(args.card, Path("card.md"))
         self.assertTrue(args.local_only)
+
+    def run_with_report(self, command, run_dir, *, error=None, updates=(), result_dir=None):
+        with patch("dev_task.cli.Orchestrator") as orchestrator:
+            def execute(request):
+                callback = orchestrator.call_args.kwargs["on_event"]
+                for path, content in updates:
+                    path.write_text(content, encoding="utf-8", newline="")
+                    callback(ProgressEvent("report", status="updated", details={"report_path": str(path)}))
+                callback(ProgressEvent("progress", message="Завершение операции"))
+                if error is not None:
+                    raise error
+                return OperationResult("completed", result_dir or run_dir)
+
+            getattr(orchestrator.return_value, command).side_effect = execute
+            argv = [command, "card.md"] + (["--base", "main"] if command == "review" else [])
+            with contextlib.redirect_stdout(io.StringIO()) as stdout, contextlib.redirect_stderr(io.StringIO()) as stderr:
+                code = main(argv)
+            return code, stdout.getvalue(), stderr.getvalue()
+
+    def test_all_commands_print_result_report_after_progress(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory)
+            content = "# Отчёт\r\n\nUnicode: ✓\nБез завершающего перевода"
+            (run_dir / "report.md").write_text(content, encoding="utf-8", newline="")
+            for command in ("run", "publish", "report", "review"):
+                with self.subTest(command=command):
+                    code, stdout, stderr = self.run_with_report(command, run_dir)
+                    self.assertEqual(code, 0)
+                    self.assertEqual(stdout, "Завершение операции\n" + content)
+                    self.assertEqual(stderr, "")
+
+    def test_only_latest_report_is_printed_on_success_error_and_interrupt(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory)
+            first = run_dir / "first.md"
+            latest = run_dir / "report.md"
+            for error, expected_code in ((None, 0), (TaskError("failure"), 1), (KeyboardInterrupt(), 130)):
+                with self.subTest(error=type(error)):
+                    code, stdout, stderr = self.run_with_report(
+                        "run", run_dir, error=error,
+                        updates=((first, "intermediate"), (latest, "old"), (latest, "# Итог\n")))
+                    self.assertEqual(code, expected_code)
+                    self.assertNotIn("intermediate", stdout)
+                    self.assertNotIn("old", stdout)
+                    self.assertEqual(stdout.count("# Итог\n"), 1)
+                    self.assertTrue(stdout.endswith("# Итог\n"))
+                    self.assertEqual(stderr, "dev-task: failure\n" if expected_code == 1 else "")
+
+    def test_success_uses_result_path_instead_of_last_event(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory)
+            result_dir = run_dir / "result"
+            result_dir.mkdir()
+            (result_dir / "report.md").write_text("final", encoding="utf-8")
+            code, stdout, stderr = self.run_with_report(
+                "run", run_dir, result_dir=result_dir, updates=((run_dir / "report.md", "intermediate"),))
+            self.assertEqual((code, stdout, stderr), (0, "Завершение операции\nfinal", ""))
+
+    def test_report_path_does_not_leak_between_calls(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory)
+            self.run_with_report("run", run_dir, updates=((run_dir / "report.md", "old report"),))
+            code, stdout, stderr = self.run_with_report("run", run_dir, error=TaskError("early failure"))
+            self.assertEqual((code, stdout, stderr),
+                             (1, "Завершение операции\n", "dev-task: early failure\n"))
+
+    def test_report_read_failures_preserve_operation_exit_code(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory)
+            for read_error in (FileNotFoundError("missing"), PermissionError("denied"),
+                               UnicodeError("invalid UTF-8")):
+                for error, expected_code in ((None, 0), (TaskError("failure"), 1), (KeyboardInterrupt(), 130)):
+                    with self.subTest(read_error=type(read_error), error=type(error)):
+                        with patch.object(Path, "open", side_effect=read_error):
+                            # write_text is mocked separately so an update can identify the report before failure.
+                            with patch.object(Path, "write_text"):
+                                code, stdout, stderr = self.run_with_report(
+                                    "run", run_dir, error=error, updates=((run_dir / "report.md", "report"),))
+                        self.assertEqual(code, expected_code)
+                        self.assertIn("Не удалось прочитать отчёт", stderr)
+                        self.assertNotIn("report\n", stdout)
 
     def test_expected_errors_have_message_and_exit_code_one(self):
         for error in (TaskError("failure"), OSError("failure"), ValueError("failure"),
