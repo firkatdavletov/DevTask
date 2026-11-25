@@ -14,7 +14,7 @@ ALLOWED_IMPORTS = {
     "errors": set(),
     "storage": set(),
     "usage": {"events"},
-    "card": {"errors", "events"},
+    "card": {"errors", "events", "models"},
     "config": {"errors", "storage", "events"},
     "contracts": {"errors"},
     "processes": {"errors", "events"},

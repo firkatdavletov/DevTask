@@ -1,11 +1,11 @@
 """Task-card parsing and validation."""
 from __future__ import annotations
 
-import re
 import yaml
 
 from .events import step
 from .errors import require
+from .models import ISSUE_PATTERN
 
 
 @step('Чтение карточки задачи')
@@ -19,7 +19,7 @@ def read_card(path):
     require(isinstance(meta, dict), "Метаданные должны быть YAML-объектом.")
     for key in ("issue", "base", "title"):
         require(isinstance(meta.get(key), str) and meta[key].strip(), f"Нужно строковое поле {key}.")
-    require(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", meta["issue"]),
+    require(ISSUE_PATTERN.fullmatch(meta["issue"]),
             "issue: идентификатор из латинских букв, цифр, дефисов и подчёркиваний.")
     require(meta["base"] != "feature/" + meta["issue"], "Рабочая и целевая ветки должны отличаться.")
     require("\n" not in meta["title"] and "\r" not in meta["title"], "Заголовок должен быть однострочным.")

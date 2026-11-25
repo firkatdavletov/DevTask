@@ -34,6 +34,10 @@ def load_config(path, *, project=None, review_only=False):
         require(isinstance(config.get(key), str) and config[key], f"Нужен параметр config.{key}.")
     for key in ("repo", "worktrees_root", "runs_root"):
         config[key] = resolve_path(config[key], path.parent)
+    if "tasks_root" in config:
+        require(isinstance(config["tasks_root"], str) and config["tasks_root"].strip(),
+                "tasks_root: непустая строка с путём к каталогу задач.")
+        config["tasks_root"] = resolve_path(config["tasks_root"], path.parent)
     require(review_only or re.fullmatch(r"[A-Za-z0-9.-]+/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", config["github_repo"]),
             "github_repo: HOST/OWNER/REPOSITORY, например github.company/mobile/android.")
     if "android_home" in config:

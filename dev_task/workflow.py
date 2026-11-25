@@ -9,7 +9,7 @@ from .card import read_card
 from .checks import run_steps, verify_with_fixes
 from .coding import implement
 from .config import resolve_profile
-from .models import OperationResult, WorkflowRequest
+from .models import ISSUE_PATTERN, OperationResult, WorkflowRequest
 from .events import step, emit
 from .errors import require
 from .github import find_pr
@@ -64,7 +64,14 @@ def start_continuation(config, state, card, args, run_dir):
 
 
 def run_workflow(args: WorkflowRequest, config) -> OperationResult:
-    card_path = args.card.expanduser().resolve()
+    if isinstance(args.card, str):
+        require(ISSUE_PATTERN.fullmatch(args.card), "Некорректный идентификатор задачи: " + args.card)
+        require("tasks_root" in config, "Укажите tasks_root в конфигурации для запуска задачи по идентификатору.")
+        card_path = config["tasks_root"] / args.card / "task.md"
+        require(card_path.is_file(), "Карточка задачи не найдена: " + str(card_path))
+    else:
+        card_path = args.card
+    card_path = card_path.expanduser().resolve()
     # Загружает карточку задачи
     card, task_text = read_card(card_path)
     repo = config["repo"]

@@ -15,14 +15,14 @@ from .console import say, ProgressRenderer
 from .events import step, ExecutionContext
 from .errors import TaskError, require
 from .api import Orchestrator, load_project
-from .models import ReviewRequest, RunRequest, TaskRequest
+from .models import ISSUE_PATTERN, ReviewRequest, RunRequest, TaskRequest
 
 
 def parse_args(argv=None):
     # Читает аргументы запуска
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=("run", "publish", "report", "review"))
-    parser.add_argument("card", help="Карточка задачи или имя удалённой ветки для review")
+    parser.add_argument("card", help="Путь к карточке задачи, идентификатор для run (поиск в tasks_root) или удалённая ветка для review")
     parser.add_argument("--base", help="Базовая удалённая ветка для review")
     parser.add_argument("--config", type=Path, help="JSON конфигурация (по умолчанию .dev-task/config.json проекта)")
     parser.add_argument("--project", type=Path, help="Каталог проекта (по умолчанию cwd)")
@@ -32,7 +32,7 @@ def parse_args(argv=None):
     parser.add_argument("--skip-review", action="store_true", help="Пропустить review в текущем цикле run")
     parser.add_argument("--skip-planning", action="store_true", help="Пропустить planning в текущем цикле run")
     args = parser.parse_args(argv)
-    if args.command != "review":
+    if args.command != "review" and not (args.command == "run" and ISSUE_PATTERN.fullmatch(args.card)):
         args.card = Path(args.card)
     if args.command == "review" and not args.base:
         parser.error("review требует --base")

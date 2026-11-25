@@ -1,5 +1,6 @@
 {
   "github_repo": "github.com/owner/repository",
+  "tasks_root": "../tasks",
   "worktrees_root": "~/.local/share/dev-task/worktrees",
   "runs_root": "~/.local/share/dev-task/runs",
   "setup": [],

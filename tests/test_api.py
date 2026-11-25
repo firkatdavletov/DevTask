@@ -117,6 +117,44 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(state["repo"], str(self.repo.resolve()))
         self.assertTrue(Path(state["worktree"], ".git").exists())
 
+    def test_cli_runs_issue_from_another_directory(self):
+        self.cfg["tasks_root"] = "repo/tasks"
+        self.write_config()
+        self.write_card(issue="KRMA-1111")
+        card = self.repo / "tasks/KRMA-1111/task.md"
+        card.parent.mkdir(parents=True)
+        self.card.rename(card)
+
+        result = subprocess.run(
+            [sys.executable, str(workflow.SCRIPT), "run", "KRMA-1111", "--local-only",
+             "--project", str(self.repo), "--config", str(self.config)],
+            cwd=self.bin, env=self.env, capture_output=True, text=True, timeout=30,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        saved_card = next((self.root / "runs").glob("*/KRMA-1111/task.md"))
+        self.assertEqual(saved_card.read_bytes(), card.read_bytes())
+
+    def test_cli_issue_errors_before_creating_worktree(self):
+        command = [sys.executable, str(workflow.SCRIPT), "run", "KRMA-1111",
+                   "--project", str(self.repo), "--config", str(self.config)]
+        card = self.root / "tasks/KRMA-1111/task.md"
+
+        for case in ("missing setting", "missing folder", "missing file"):
+            with self.subTest(case=case):
+                if case == "missing folder":
+                    self.cfg["tasks_root"] = "tasks"
+                    self.write_config()
+                if case == "missing file":
+                    card.parent.mkdir(parents=True)
+                result = subprocess.run(command, cwd=self.bin, env=self.env, capture_output=True,
+                                        text=True, timeout=30)
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                expected = "Укажите tasks_root" if case == "missing setting" else str(card.resolve())
+                self.assertIn(expected, result.stderr)
+                self.assertFalse((self.root / "worktrees").exists())
+                self.assertFalse((self.root / "runs").exists())
+
     def test_environment_and_observers_are_nested_and_reset(self):
         outer, inner = [], []
         before = dict(os.environ)

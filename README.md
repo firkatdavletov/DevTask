@@ -77,8 +77,15 @@ JSON через `--config`: отчёт восстанавливается из �
 `worktrees_root/<repo-key>/<issue>`; существующие задачи используют сохранённый путь.
 Состояние и история workflow сохраняют прежний формат.
 
+Для запуска по идентификатору задайте `tasks_root`, например `"../tasks"` в
+`.dev-task/config.json`. Команда `dev-task run KRMA-1111` откроет
+`<tasks_root>/KRMA-1111/task.md`. Если карточка отсутствует, команда выведет
+ожидаемый путь и завершится с кодом `1`. Явный путь к карточке можно передать
+без настройки `tasks_root`. Для файла без расширения используйте `./имя`.
+
 ```bash
 cd /path/to/project
+dev-task run KRMA-1111 --local-only
 dev-task run tasks/task.md --local-only
 dev-task publish tasks/task.md
 # Из другого каталога:
