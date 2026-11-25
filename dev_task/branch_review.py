@@ -13,7 +13,7 @@ from .contracts import REVIEW_SCHEMA, blocking_findings, validate_review
 from .errors import TaskError, require
 from .processes import executable_path, capture
 from .reports import update_reports
-from .repository import git, readonly_snapshot, repository_lock
+from .repository import git, git_write_lock, readonly_snapshot, repository_slot
 from .storage import write_json
 
 
@@ -41,10 +41,10 @@ def run_branch_review(args: ReviewRequest, config) -> OperationResult:
     state = {'mode': 'branch_review', 'repo': str(repo), 'branch': branch, 'base': base,
              'remote': config['remote'], 'worktree': str(worktree), 'phase': 'preparing',
              'cycle_id': run_id, 'execution_profile': {'review': profile}}
-    with repository_lock(repo):
+    with repository_slot(repo):
         run_dir.mkdir(parents=True)
         try:
-            with step('Получение веток из Git'):
+            with step('Получение веток из Git'), git_write_lock(repo):
                 git(repo, 'fetch', '--no-tags', '--no-write-fetch-head', '--refmap=', config['remote'],
                     f'+refs/heads/{branch}:{refs[0]}', f'+refs/heads/{base}:{refs[1]}')
             head, base_tip = [git(repo, 'rev-parse', ref + '^{commit}') for ref in refs]
@@ -60,7 +60,7 @@ def run_branch_review(args: ReviewRequest, config) -> OperationResult:
                 state['review_result'] = {'status': 'reviewed', 'summary': 'Изменений нет.', 'findings': [], 'blockers': []}
             else:
                 worktree.parent.mkdir(parents=True, exist_ok=True)
-                with step('Создание worktree'):
+                with step('Создание worktree'), git_write_lock(repo):
                     git(repo, 'worktree', 'add', '--detach', str(worktree), head)
                 require(not git(worktree, 'status', '--porcelain', '--untracked-files=all'),
                         'Созданный worktree отличается от удалённого commit.')
@@ -99,7 +99,7 @@ SHA ветки: {head}; SHA базы: {base_tip}; merge-base: {bases[0]}.
                              and not git(worktree, 'branch', '--show-current')
                              and not git(worktree, 'status', '--porcelain', '--untracked-files=all', '--ignored'))
                     if clean:
-                        with step('Удаление временного worktree'):
+                        with step('Удаление временного worktree'), git_write_lock(repo):
                             git(repo, 'worktree', 'remove', str(worktree))
                     else:
                         state['retained_worktree'] = True
@@ -109,7 +109,7 @@ SHA ветки: {head}; SHA базы: {base_tip}; merge-base: {bases[0]}.
                 state['cleanup_error'] = str(exc)
                 emit('Worktree сохранён: ' + str(worktree))
             finally:
-                with step('Очистка временных ссылок'):
+                with step('Очистка временных ссылок'), git_write_lock(repo):
                     for ref in refs:
                         capture(['git', 'update-ref', '-d', ref], repo, ok=False)
                 with step('Сохранение состояния review'):

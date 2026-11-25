@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import textwrap
+import time
 import unittest
 
 SCRIPT = Path(__file__).resolve().parents[1] / "dev-task"
@@ -216,6 +217,99 @@ class WorkflowTest(unittest.TestCase):
         self.assertEqual(calls.count("gh pr create"), 1)
         self.assertEqual(self.g(self.repo, "branch", "--show-current"), "develop")
         self.assertEqual((self.repo / "app/name.txt").read_text(), "old name\n")
+
+    def test_parallel_runs_share_three_slots_and_reject_duplicate_issue(self):
+        barrier = """
+            import os, time
+            from pathlib import Path
+            directory = Path(os.environ["TEST_ROOT"])
+            (directory / "check-started").touch()
+            deadline = time.monotonic() + 30
+            while not (directory / "release-check").exists():
+                if time.monotonic() >= deadline:
+                    raise TimeoutError("Test did not release check")
+                time.sleep(0.02)
+        """
+        self.cfg["checks"].append({"name": "wait for other runs",
+                                   "argv": [sys.executable, "-c", textwrap.dedent(barrier)]})
+        self.write_config()
+
+        linked = self.root / "linked"
+        self.g(self.repo, "worktree", "add", "--detach", str(linked), "HEAD")
+        issues = ("DEMO-1", "DEMO-2", "DEMO-3", "DEMO-4")
+        for issue in issues:
+            (self.root / issue).mkdir()
+            self.card = self.root / issue / "task.md"
+            self.write_card(issue=issue)
+
+        def cli(issue, command="run", cwd=self.repo):
+            directory = self.root / issue
+            args = [sys.executable, str(SCRIPT), command, str(directory / "task.md"), "--config", str(self.config)]
+            return args, {"cwd": cwd, "env": {**self.env, "TEST_ROOT": str(directory)}, "text": True}
+
+        def rejected(issue, message, command="run"):
+            args, kwargs = cli(issue, command, cwd=linked)
+            result = subprocess.run(args, **kwargs, capture_output=True, timeout=5)
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn(message, result.stderr)
+
+        def release(issue):
+            (self.root / issue / "release-check").touch()
+
+        def finish(issue, process):
+            out, err = process.communicate(timeout=15)
+            self.assertEqual(process.returncode, 0, out + err)
+            state_path, = (self.root / "runs").glob(f"*/{issue}/state.json")
+            state = json.loads(state_path.read_text())
+            self.assertEqual(state["phase"], "published")
+            self.assertEqual(self.g(self.root, "--git-dir", str(self.remote), "rev-parse", f"feature/{issue}"),
+                             state["commit_sha"])
+
+        processes = {}
+        try:
+            for issue in issues[:3]:
+                args, kwargs = cli(issue)
+                processes[issue] = subprocess.Popen(args, **kwargs, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+            deadline = time.monotonic() + 15
+            for issue, process in processes.items():
+                while not (self.root / issue / "check-started").exists():
+                    if process.poll() is not None:
+                        self.fail(f"{issue} exited early: {process.communicate()}")
+                    self.assertLess(time.monotonic(), deadline, f"{issue} did not reach its check")
+                    time.sleep(0.02)
+            self.assertTrue(all(process.poll() is None for process in processes.values()))
+
+            rejected("DEMO-4", "заняты все 3 слота DevTask")
+            rejected("DEMO-1", "Задача DEMO-1 уже выполняется")
+            rejected("DEMO-1", "Задача DEMO-1 уже выполняется", command="publish")
+            self.assertFalse(list((self.root / "runs").glob("*/DEMO-4")))
+
+            release("DEMO-1")
+            finish("DEMO-1", processes["DEMO-1"])
+            self.assertTrue(all(processes[issue].poll() is None for issue in issues[1:3]))
+
+            release("DEMO-4")
+            args, kwargs = cli("DEMO-4")
+            processes["DEMO-4"] = subprocess.Popen(args, **kwargs, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            finish("DEMO-4", processes["DEMO-4"])
+
+            for issue in issues[1:3]:
+                release(issue)
+            for issue in issues[1:3]:
+                finish(issue, processes[issue])
+        finally:
+            for issue in issues:
+                release(issue)
+            for process in processes.values():
+                if process.poll() is None:
+                    try:
+                        process.communicate(timeout=10)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.communicate()
+                else:
+                    process.communicate()
 
     def test_local_files_copy_retries_before_setup_and_preserves_resumed_edits(self):
         with (self.repo / ".gitignore").open("a") as ignored:

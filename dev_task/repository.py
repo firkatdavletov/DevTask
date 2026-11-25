@@ -17,23 +17,52 @@ from .processes import capture
 from .storage import file_digest, read_json, resolve_path, write_json
 
 
+MAX_PARALLEL_RUNS = 3
+
+
 def git(cwd, *args):
     return capture(["git", *args], cwd).stdout.strip()
 
 
-@contextlib.contextmanager
-def repository_lock(repo):
+def lock_dir(repo):
     common = resolve_path(git(repo, "rev-parse", "--git-common-dir"), repo)
-    with (common / "dev-task.lock").open("a") as lock:
+    directory = common / "dev-task-locks"
+    directory.mkdir(exist_ok=True)
+    return directory
+
+
+@contextlib.contextmanager
+def task_lock(repo, issue):
+    # Case variants can refer to the same branch and worktree on case-insensitive filesystems.
+    key = hashlib.sha256(issue.casefold().encode()).hexdigest()
+    with (lock_dir(repo) / f"task-{key}.lock").open("a") as lock:
         try:
-            with step("Получение блокировки репозитория"):
-                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
-            raise TaskError("Для этого репозитория уже работает dev-task.")
-        try:
+            raise TaskError(f"Задача {issue} уже выполняется в этом репозитории.") from None
+        yield
+
+
+@contextlib.contextmanager
+def repository_slot(repo):
+    directory = lock_dir(repo)
+    for slot in range(1, MAX_PARALLEL_RUNS + 1):
+        with (directory / f"slot-{slot}.lock").open("a") as lock:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                continue
             yield
-        finally:
-            fcntl.flock(lock, fcntl.LOCK_UN)
+            return
+    raise TaskError(f"В этом репозитории заняты все {MAX_PARALLEL_RUNS} слота DevTask. "
+                    "Повторите запуск после завершения одного из процессов.")
+
+
+@contextlib.contextmanager
+def git_write_lock(repo):
+    with (lock_dir(repo) / "git-write.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
 
 
 def remote_identity(url):
@@ -88,10 +117,10 @@ def prepare(config, card, run_dir, state_path):
             capture(["git", "check-ref-format", "refs/heads/" + card["base"]], repo, ok=False).returncode == 0,
             "Некорректная базовая ветка.")
     assert_remote(config)
-    with step('Получение изменений из Git'):
+    with step('Получение изменений из Git'), git_write_lock(repo):
         git(repo, "fetch", "--prune", remote)
-    ref = f"refs/remotes/{remote}/{card['base']}"
-    base_sha = git(repo, "rev-parse", "--verify", ref + "^{commit}")
+        ref = f"refs/remotes/{remote}/{card['base']}"
+        base_sha = git(repo, "rev-parse", "--verify", ref + "^{commit}")
     if state_path.exists():
         state = read_json(state_path)
         for key, expected in (("repo", str(repo)), ("base", card["base"]), ("issue", card["issue"]),
@@ -109,7 +138,7 @@ def prepare(config, card, run_dir, state_path):
             "Локальная ветка уже существует без состояния dev-task.")
     require(not git(repo, "ls-remote", "--heads", remote, "refs/heads/" + branch), "Ветка уже существует на remote. Автоматический перехват отключён.")
     worktree.parent.mkdir(parents=True, exist_ok=True)
-    with step('Создание worktree'):
+    with step('Создание worktree'), git_write_lock(repo):
         git(repo, "worktree", "add", "-b", branch, str(worktree), base_sha)
     state = {"issue": card["issue"], "repo": str(repo), "remote": remote, "github_repo": config["github_repo"],
              "base": card["base"], "base_sha": base_sha, "branch": branch, "worktree": str(worktree), "phase": "prepared",

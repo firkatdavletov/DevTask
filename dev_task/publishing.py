@@ -20,6 +20,7 @@ from .repository import (
     assert_unchanged_checks,
     assert_worktree,
     git,
+    git_write_lock,
 )
 from .storage import write_json
 
@@ -131,7 +132,7 @@ def publish(config, state, card, run_dir, state_path):
     if state.get("continuation"):
         require(find_pr(config, state) is not None, "Сохранённый PR не найден.")
         assert_published_remote(config, state)
-    with step('Отправка ветки в Git'):
+    with step('Отправка ветки в Git'), git_write_lock(worktree):
         git(worktree, "push", "-u", config["remote"], f"HEAD:refs/heads/{state['branch']}")
     if existing:
         pr = existing

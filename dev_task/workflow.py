@@ -25,8 +25,9 @@ from .repository import (
     changed_paths,
     git,
     prepare,
-    repository_lock,
+    repository_slot,
     task_changed_paths,
+    task_lock,
 )
 from .review import fix_review_findings, review_with_fixes
 from .state import archive_cycle, configure_cycle, migrate_state
@@ -82,20 +83,19 @@ def run_workflow(args: WorkflowRequest, config) -> OperationResult:
         require(state_path.is_file(), "Состояние задачи не найдено; сначала выполните run.")
         update_reports(read_json(state_path), run_dir, announce=True)
         return OperationResult("reported", run_dir)
-    # Готовит каталог запуска и блокирует параллельный запуск
     with step('Проверка инструментов'):
         for executable in ("git", "gh") + ((config["codex_bin"],) if args.command == "run" else ()):
             require(executable_path(executable), f"Команда не найдена: {executable}")
     require(repo.is_dir(), "Каталог репозитория не найден.")
     for directory in (config["worktrees_root"], config["runs_root"]):
         require(not directory.is_relative_to(repo), "worktrees_root и runs_root должны находиться вне checkout.")
-    run_dir.mkdir(parents=True, exist_ok=True)
     require(not run_dir.is_relative_to(config["worktrees_root"]), "runs_root должен быть отдельно от worktrees_root.")
     digest = hashlib.sha256(task_text.encode()).hexdigest()
-    with repository_lock(repo):
+    with task_lock(repo, card["issue"]), repository_slot(repo):
         require(args.command == "run" or state_path.exists(), "Сначала выполните run.")
 
         require(not args.continue_pr or state_path.is_file(), "Для --continue-pr нужно сохранённое состояние опубликованной задачи.")
+        run_dir.mkdir(parents=True, exist_ok=True)
         # проверяет Git remote и получает целевую ветку
         state = prepare(config, card, run_dir, state_path)
 
@@ -174,4 +174,4 @@ def run_workflow(args: WorkflowRequest, config) -> OperationResult:
                 with step("Сохранение состояния"):
                     write_json(state_path, state)
 
-    return OperationResult(state["phase"], run_dir, assert_worktree(state), state.get("pr"))
+        return OperationResult(state["phase"], run_dir, assert_worktree(state), state.get("pr"))
