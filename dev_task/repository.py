@@ -190,12 +190,12 @@ def assert_scope(config, paths):
         require(not any(fnmatch.fnmatchcase(path, pat) for pat in config["deny_paths"]), f"Путь запрещён deny_paths: {path}")
 
 
-def assert_unchanged_checks(state, worktree, expected_tree):
+def assert_unchanged_checks(state, worktree, expected_tree, *, message=None):
     assert_worktree(state)
     require(git(worktree, "write-tree") == expected_tree and
             capture(["git", "diff", "--quiet"], worktree, ok=False).returncode == 0 and
             not git(worktree, "ls-files", "--others", "--exclude-standard"),
-            "Проверки изменили исходники или index. Проверьте diff и повторите запуск.")
+            message or "Проверки изменили исходники или index. Проверьте diff и повторите запуск.")
 
 
 def assert_published_remote(config, state):

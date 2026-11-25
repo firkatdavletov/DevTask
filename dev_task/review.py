@@ -72,7 +72,12 @@ def review_once(config, state, task_text, card_path, attempt, state_path):
             result = launch_codex(config, state, directory, "review", prompt, REVIEW_SCHEMA, validate_review, "read-only")
         finally:
             # A failed or interrupted read-only session still has to leave the checked snapshot intact.
-            assert_unchanged_checks(state, worktree, record["checked_tree"])
+            try:
+                assert_unchanged_checks(state, worktree, record["checked_tree"],
+                                        message="Review изменил исходники или index. Проверьте изменения и выполните run --rerun.")
+            except TaskError:
+                state["requires_rerun"] = "Review"
+                raise
         record["status"] = result["status"]
         record["result"] = result
         state["review_result"] = result
@@ -151,6 +156,7 @@ def fix_review_findings(config, state, task_text, card_path, attempt, state_path
         state.pop("checked_tree", None)
         state.pop("checks", None)
         state.pop("reviewed_tree", None)
+        state.pop("review_tree", None)
         state["pending_review_fix"] = False
         record["status"] = "implemented"
     except BaseException as exc:

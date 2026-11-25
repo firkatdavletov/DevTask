@@ -21,7 +21,19 @@ argv = sys.argv
 if "app-server" in argv:
     sys.exit(0)
 schema = json.loads(Path(argv[argv.index("--output-schema") + 1]).read_text())
-stage = "commit_message" if "subject" in schema["properties"] else "planning" if "plan" in schema["properties"] else "review" if "findings" in schema["properties"] else "coding"
+result_path = Path(argv[argv.index("-o") + 1])
+if "subject" in schema["properties"]:
+    stage = "commit_message"
+elif "plan" in schema["properties"]:
+    stage = "planning"
+elif "findings" in schema["properties"]:
+    stage = "review"
+elif (result_path.parent / "review-failure.json").exists():
+    stage = "review_fix"
+elif (result_path.parent / "check-failure.json").exists():
+    stage = "check_fix"
+else:
+    stage = "coding"
 prompt = sys.stdin.read()
 calls_path = root / "codex-calls.jsonl"
 calls = [json.loads(line) for line in calls_path.read_text().splitlines()] if calls_path.exists() else []
@@ -44,7 +56,7 @@ if os.environ.get("INTERRUPT_STAGE") == stage:
     time.sleep(3)
 if os.environ.get("TIMEOUT_STAGE") == stage:
     time.sleep(3)
-if os.environ.get("FAIL_FIX") and stage == "coding" and "Исправь замечания" in prompt:
+if os.environ.get("FAIL_FIX") and stage == "review_fix":
     sys.exit(9)
 if os.environ.get("FAIL_STAGE") == stage:
     marker = root / ("failed-" + stage)
@@ -90,7 +102,6 @@ if os.environ.get("BLOCK_STAGE") == stage:
     result.update(status="blocked", blockers=["Stage blocked"])
 if os.environ.get("MALFORMED_STAGE") == stage:
     result = {"unexpected": True}
-result_path = Path(argv[argv.index("-o") + 1])
 result_path.write_text(json.dumps(result))
 if os.environ.get("NO_USAGE"):
     print(json.dumps({"type": "turn.completed"}))
@@ -208,12 +219,12 @@ class WorkflowTest(unittest.TestCase):
         self.run_task()
         state = self.state()
         self.assertEqual(state["phase"], "published")
-        self.assertEqual(state["session_id"], "session-1")
+        self.assertEqual([call["stage"] for call in self.calls()], ["coding", "commit_message"])
         self.assertEqual(state["checks"][0]["exit_code"], 0)
         self.assertEqual(self.g(self.root, "--git-dir", str(self.remote), "rev-parse", "feature/KRMA-1234"), state["commit_sha"])
         self.run_task()
         calls = (self.root / "calls").read_text().splitlines()
-        self.assertEqual(calls.count("codex"), 1)
+        self.assertEqual(calls.count("codex"), 2)
         self.assertEqual(calls.count("gh pr create"), 1)
         self.assertEqual(self.g(self.repo, "branch", "--show-current"), "develop")
         self.assertEqual((self.repo / "app/name.txt").read_text(), "old name\n")
@@ -429,10 +440,12 @@ class WorkflowTest(unittest.TestCase):
         result = self.run_task(success=False)
         self.assertIn("Git remote", result.stderr)
         self.assertFalse((self.root / "calls").exists())
-        self.assertEqual(self.report()["status"], "failed")
+        self.assertFalse(list((self.root / "runs").glob("*/KRMA-1234/state.json")))
+        self.assertFalse(list((self.root / "runs").glob("*/KRMA-1234/report.json")))
         self.env.pop("DISPLAY_REMOTE")
         self.run_task("run", "--local-only")
-        self.assertEqual(len(self.report()["invocations"]), 2)
+        self.assertEqual(self.report()["phase"], "verified")
+        self.assertEqual([session["stage"] for session in self.report()["sessions"]], ["coding"])
 
     def test_other_pr_base_is_not_silently_changed(self):
         self.run_task("run", "--local-only")
@@ -453,14 +466,14 @@ class WorkflowTest(unittest.TestCase):
         self.assertEqual(len({c["session_id"] for c in calls}), len(calls))
         for call in calls:
             self.assertEqual(call["sandbox"], "workspace-write" if call["stage"] == "coding" else "read-only")
-        self.assertEqual(self.report()["tokens"]["total_tokens"], 110 * len(calls))
+        self.assertEqual(self.report()["total"]["tokens"]["total_tokens"], 110 * len(calls))
 
     def test_profile_trivial(self):
         self.assert_profile("TrIvIaL", [("coding", "gpt-6-luna", "low")])
         report = self.report()
-        self.assertTrue(report["stages"]["planning"]["skipped"])
+        self.assertEqual(report["planning_status"], "skipped")
         self.assertEqual(report["stages"]["planning"]["tokens"]["total_tokens"], 0)
-        self.assertFalse(report["quality"][0]["assessed"])
+        self.assertEqual(report["quality_status"], "not_assessed")
 
     def test_profile_simple(self):
         self.assert_profile("simple", [("coding", "gpt-6-luna", "medium"), ("review", "gpt-6.1-sol", "low")])
@@ -469,7 +482,7 @@ class WorkflowTest(unittest.TestCase):
         self.assert_profile("medium", [("planning", "gpt-6.1-sol", "medium"),
                                        ("coding", "gpt-6.1-sol", "medium"), ("review", "gpt-6-astra", "low")])
         state = self.state()
-        plan = Path(state["cycles"][0]["plan_path"])
+        plan = Path(state["plan_path"])
         self.assertTrue(plan.exists())
         self.assertFalse(plan.is_relative_to(Path(state["worktree"])))
         for call in self.calls()[1:]:
@@ -493,9 +506,9 @@ class WorkflowTest(unittest.TestCase):
         self.assertEqual([c["stage"] for c in self.calls()], ["coding"])
         self.run_task("run", "--local-only")
         self.assertEqual(len(self.calls()), 1)
-        self.run_task("run", "--local-only", "--rerun", "--no-skip-planning", "--no-skip-review")
+        self.run_task("run", "--local-only", "--rerun")
         self.assertEqual([c["stage"] for c in self.calls()], ["coding", "planning", "coding", "review"])
-        self.assertEqual(self.report()["manual_reruns"], 1)
+        self.assertEqual(len(self.report()["cycle_history"]), 1)
 
     def test_stage_profile_overrides_and_direct_model_id(self):
         self.write_card(complexity="medium")
@@ -533,20 +546,18 @@ class WorkflowTest(unittest.TestCase):
         self.env["REVIEW_ROUNDS"] = json.dumps([["P1", "P2"], ["P2"], ["P3"]])
         self.run_task("run", "--local-only")
         calls = self.calls()
-        self.assertEqual([c["stage"] for c in calls], ["planning", "coding", "review", "coding", "review", "coding", "review"])
+        self.assertEqual([c["stage"] for c in calls],
+                         ["planning", "coding", "review", "review_fix", "review", "review_fix", "review"])
         self.assertIn("Исправь замечания", calls[3]["prompt"])
         report = self.report()
-        self.assertEqual((report["fixes_started"], report["fixes_completed"]), (2, 2))
+        self.assertEqual((report["review_fix_started"], report["review_fix_completed"]), (2, 2))
         quality = report["quality"][0]
-        self.assertEqual(quality["first"]["P1"], 1)
-        self.assertEqual(quality["first"]["P2"], 1)
-        self.assertEqual(quality["last"]["P1"], 0)
-        self.assertEqual(quality["last"]["P2"], 0)
-        self.assertEqual(quality["last"]["P3"], 1)
-        self.assertEqual(len(quality["rounds"]), 3)
-        self.assertEqual(report["stages"]["coding"]["tokens"]["total_tokens"], 330)
-        self.assertEqual(report["tokens"]["total_tokens"], 770)
-        self.assertGreaterEqual(report["active_seconds"], sum(r["seconds"] for r in report["sessions"]))
+        self.assertEqual((quality["first_p1_p2"], quality["last_p1_p2"]), (2, 0))
+        self.assertEqual([[finding["priority"] for finding in review["result"]["findings"]]
+                          for review in quality["reviews"]], [["P1", "P2"], ["P2"], ["P3"]])
+        self.assertEqual(report["stages"]["coding"]["tokens"]["total_tokens"], 110)
+        self.assertEqual(report["stages"]["review_fix"]["tokens"]["total_tokens"], 220)
+        self.assertEqual(report["total"]["tokens"]["total_tokens"], 770)
 
     def test_default_three_fixes_limit_persists(self):
         self.write_card(complexity="simple")
@@ -554,7 +565,7 @@ class WorkflowTest(unittest.TestCase):
         result = self.run_task(success=False)
         self.assertIn("лимит исправлений", result.stderr)
         self.assertEqual(len(self.calls()), 8)
-        self.assertEqual(self.report()["fixes_started"], 3)
+        self.assertEqual(self.report()["review_fix_started"], 3)
         self.run_task(success=False)
         self.assertEqual(len(self.calls()), 8)
         self.assertNotIn("commit_sha", self.state())
@@ -566,7 +577,8 @@ class WorkflowTest(unittest.TestCase):
         self.write_config()
         self.env.update(REVIEW_ROUNDS='[["P1"]]', FAIL_FIX="1")
         self.run_task(success=False)
-        self.assertEqual((self.report()["fixes_started"], self.report()["fixes_completed"]), (1, 0))
+        report = self.report()
+        self.assertEqual((report["review_fix_started"], report["review_fix_completed"]), (1, 0))
         self.run_task(success=False)
         self.assertEqual(len(self.calls()), 3)
 
@@ -576,7 +588,8 @@ class WorkflowTest(unittest.TestCase):
         self.write_config()
         self.env["REVIEW_ROUNDS"] = '[["P0"]]'
         self.run_task(success=False)
-        self.assertEqual(self.report()["quality"][0]["last"]["P0"], 1)
+        reviews = self.report()["quality"][0]["reviews"]
+        self.assertEqual([finding["priority"] for finding in reviews[-1]["result"]["findings"]], ["P0"])
         self.assertFalse((self.root / "github-prs.json").exists())
 
     def test_failed_review_resumes_without_repeating_other_stages(self):
@@ -584,12 +597,12 @@ class WorkflowTest(unittest.TestCase):
         self.env.update(FAIL_STAGE="review", FAIL_ONCE="1", PARTIAL_USAGE="1")
         self.run_task(success=False)
         report = self.report()
-        self.assertFalse(report["tokens"]["complete"])
-        self.assertEqual(report["tokens"]["total_tokens"], 330)
+        self.assertEqual(report["total"]["tokens"]["status"], "partial")
+        self.assertEqual(report["total"]["tokens"]["total_tokens"], 330)
         self.run_task("run", "--local-only")
         self.assertEqual([c["stage"] for c in self.calls()], ["planning", "coding", "review", "review"])
-        self.assertEqual(self.report()["tokens"]["total_tokens"], 440)
-        self.assertEqual(self.report()["status"], "local_complete")
+        self.assertEqual(self.report()["total"]["tokens"]["total_tokens"], 440)
+        self.assertEqual(self.report()["phase"], "reviewed")
 
     def test_failed_planning_stops_before_coding(self):
         self.write_card(complexity="medium")
@@ -599,19 +612,21 @@ class WorkflowTest(unittest.TestCase):
         self.run_task("run", "--local-only")
         self.assertEqual([c["stage"] for c in self.calls()], ["planning", "planning", "coding", "review"])
 
-    def test_completed_session_checkpoint_recovers_without_duplicate(self):
+    def test_resume_after_interrupted_check_reuses_saved_implementation(self):
         self.write_card(complexity="medium")
-        self.env["FAIL_STAGE"] = "review"
-        self.run_task(success=False)
+        successful_check = self.cfg["checks"][0]["argv"]
+        self.cfg["checks"][0]["argv"] = [sys.executable, "-c",
+                                       "import os, signal; os.kill(os.getppid(), signal.SIGINT)"]
+        self.write_config()
+        self.assertEqual(self.run_task(success=False).returncode, 130)
         state = self.state()
-        state["cycles"][0]["next_stage"] = "coding"
-        # Mimic a crash after recording coding success, before advancing to checks.
-        coding = next(r for r in state["sessions"] if r["stage"] == "coding")
-        coding["snapshot"] = state["cycles"][0]["checked_snapshot"]
-        self.save_state(state)
-        self.env.pop("FAIL_STAGE")
+        self.assertEqual(state["phase"], "implemented")
+        self.assertEqual(state["result"]["status"], "implemented")
+        self.assertNotIn("checked_tree", state)
+        self.cfg["checks"][0]["argv"] = successful_check
+        self.write_config()
         self.run_task("run", "--local-only")
-        self.assertEqual(sum(c["stage"] == "coding" for c in self.calls()), 1)
+        self.assertEqual([c["stage"] for c in self.calls()], ["planning", "coding", "review"])
 
     def test_readonly_planning_mutation_requires_rerun(self):
         self.write_card(complexity="medium")
@@ -621,7 +636,7 @@ class WorkflowTest(unittest.TestCase):
         self.assertIn("--rerun", self.run_task(success=False).stderr)
         self.assertEqual(len(self.calls()), 1)
         self.run_task("run", "--local-only", "--rerun")
-        self.assertEqual(self.state()["phase"], "verified")
+        self.assertEqual(self.state()["phase"], "reviewed")
 
     def test_readonly_review_mutation_does_not_publish(self):
         self.write_card(complexity="simple")
@@ -633,15 +648,17 @@ class WorkflowTest(unittest.TestCase):
         self.write_card(complexity="simple")
         self.env["BLOCK_STAGE"] = "review"
         self.assertIn("Stage blocked", self.run_task(success=False).stderr)
-        self.assertFalse(self.report()["quality"][0]["assessed"])
+        report = self.report()
+        self.assertEqual(report["quality_status"], "not_assessed")
+        self.assertEqual(report["quality"][0]["reviews"][-1]["result"]["status"], "blocked")
         self.assertFalse((self.root / "github-prs.json").exists())
 
     def test_malformed_planning_result_stops(self):
         self.write_card(complexity="medium")
         self.env["MALFORMED_STAGE"] = "planning"
-        self.assertIn("Некорректный результат", self.run_task(success=False).stderr)
+        self.assertIn("некорректный результат planning", self.run_task(success=False).stderr)
         self.assertEqual(len(self.calls()), 1)
-        self.assertEqual(self.report()["status"], "failed")
+        self.assertEqual(self.report()["sessions"][-1]["status"], "failed")
 
     def test_review_timeout_report_and_resume(self):
         self.write_card(complexity="simple")
@@ -649,8 +666,9 @@ class WorkflowTest(unittest.TestCase):
         self.write_config()
         self.env["TIMEOUT_STAGE"] = "review"
         self.run_task(success=False)
-        self.assertEqual(self.report()["sessions"][-1]["exit_code"], 124)
-        self.assertFalse(self.report()["tokens"]["complete"])
+        report = self.report()
+        self.assertEqual(report["sessions"][-1]["status"], "timed_out")
+        self.assertEqual(report["total"]["tokens"]["status"], "partial")
         self.env.pop("TIMEOUT_STAGE")
         self.run_task("run", "--local-only")
         self.assertEqual([c["stage"] for c in self.calls()], ["coding", "review", "review"])
@@ -659,15 +677,16 @@ class WorkflowTest(unittest.TestCase):
         self.env["INTERRUPT_STAGE"] = "coding"
         result = self.run_task(success=False)
         self.assertEqual(result.returncode, 130)
-        self.assertEqual(self.report()["status"], "interrupted")
-        self.assertEqual(self.report()["sessions"][-1]["status"], "interrupted")
+        report = self.report()
+        self.assertIn("KeyboardInterrupt", report["last_error"])
+        self.assertEqual(report["sessions"][-1]["status"], "interrupted")
 
     def test_unknown_usage_and_repeat_do_not_double_count(self):
         self.env["NO_USAGE"] = "1"
         self.run_task("run", "--local-only")
         report = self.report()
-        self.assertFalse(report["tokens"]["complete"])
-        self.assertFalse(report["tokens"]["known"])
+        self.assertEqual(report["total"]["tokens"]["status"], "unknown")
+        self.assertIsNone(report["total"]["tokens"]["total_tokens"])
         self.run_task("run", "--local-only")
         self.assertEqual(len(self.report()["sessions"]), 1)
         self.assertEqual(len(self.calls()), 1)
@@ -675,23 +694,23 @@ class WorkflowTest(unittest.TestCase):
     def test_partial_usage_preserves_known_fields(self):
         self.env["MISSING_CACHE_USAGE"] = "1"
         self.run_task("run", "--local-only")
-        usage = self.report()["tokens"]
+        usage = self.report()["total"]["tokens"]
         self.assertEqual(usage["total_tokens"], 110)
-        self.assertTrue(usage["known"])
-        self.assertFalse(usage["complete"])
+        self.assertIsNone(usage["cached_input_tokens"])
+        self.assertEqual(usage["status"], "partial")
 
     def test_tokens_cached_and_publish_dont_double_count(self):
         self.write_card(complexity="medium")
         self.run_task("run", "--local-only")
         before = self.report()
-        self.assertEqual(before["tokens"]["input_tokens"], 300)
-        self.assertEqual(before["tokens"]["cached_input_tokens"], 240)
-        self.assertEqual(before["tokens"]["output_tokens"], 30)
-        self.assertEqual(before["tokens"]["total_tokens"], 330)
+        self.assertEqual(before["total"]["tokens"], {"input_tokens": 300, "cached_input_tokens": 240,
+                         "output_tokens": 30, "total_tokens": 330, "status": "complete"})
         self.run_task("publish")
         after = self.report()
-        self.assertEqual(after["tokens"], before["tokens"])
-        self.assertGreater(after["active_seconds"], before["active_seconds"])
+        self.assertEqual([session["stage"] for session in after["sessions"]], ["planning", "coding", "review", "commit_message"])
+        self.assertEqual(after["sessions"][:-1], before["sessions"])
+        self.assertEqual(after["total"]["tokens"], {"input_tokens": 400, "cached_input_tokens": 320,
+                         "output_tokens": 40, "total_tokens": 440, "status": "complete"})
         body = next((self.root / "runs").glob("*/KRMA-1234/pr-body.md")).read_text()
         self.assertNotIn("Токены", body)
 
@@ -700,15 +719,16 @@ class WorkflowTest(unittest.TestCase):
         self.run_task("run", "--local-only")
         worktree = Path(self.state()["worktree"])
         (worktree / "app/extra.txt").write_text("manual change")
-        self.assertIn("Код изменился после review", self.run_task("publish", success=False).stderr)
+        self.assertIn("Нет актуального успешного review", self.run_task("publish", success=False).stderr)
         self.assertEqual(len(self.calls()), 2)
         self.run_task("run", "--local-only")
         self.assertEqual([c["stage"] for c in self.calls()], ["coding", "review", "review"])
         self.run_task("publish")
-        self.assertEqual(len(self.calls()), 3)
+        self.assertEqual([c["stage"] for c in self.calls()], ["coding", "review", "review", "commit_message"])
 
     def test_failed_check_resume_uses_coding_result(self):
         self.write_card(complexity="simple")
+        self.cfg["max_check_fix_iterations"] = 0
         self.cfg["checks"][0]["argv"] = [sys.executable, "-c", "raise SystemExit(7)"]
         self.write_config()
         self.run_task(success=False)
@@ -717,28 +737,35 @@ class WorkflowTest(unittest.TestCase):
         self.run_task("run", "--local-only")
         self.assertEqual([c["stage"] for c in self.calls()], ["coding", "review"])
 
-    def test_legacy_uncommitted_requires_rerun(self):
-        self.run_task("run", "--local-only")
+    def test_legacy_uncommitted_reuses_completed_coding_then_can_rerun(self):
+        self.write_card(complexity="medium")
+        self.run_task("run", "--local-only", "--skip-planning")
         state = self.state()
-        for key in ("schema_version", "cycles", "sessions"):
+        state["workflow_version"] = 2
+        state["execution_profile"].pop("planning")
+        for key in ("planning_status", "planning_skip_reason", "coding_started"):
             state.pop(key)
         self.save_state(state)
-        self.assertIn("Старое незавершённое", self.run_task(success=False).stderr)
+        self.run_task("run", "--local-only")
+        self.assertEqual([c["stage"] for c in self.calls()], ["coding", "review"])
+        self.assertEqual(self.state()["workflow_version"], 4)
+        self.assertEqual(self.state()["planning_skip_reason"], "цикл начат до добавления planning")
         self.run_task("run", "--local-only", "--rerun")
-        self.assertEqual(self.state()["schema_version"], 2)
-        self.assertTrue(self.report()["legacy_metrics_unavailable"])
+        self.assertEqual([c["stage"] for c in self.calls()], ["coding", "review", "planning", "coding", "review"])
+        self.assertEqual(self.report()["total"]["tokens"]["total_tokens"], 550)
 
     def test_legacy_committed_stops_but_published_returns_pr(self):
         self.env["GH_LOST_RESPONSE"] = "1"
         self.run_task(success=False)
         state = self.state()
-        state.pop("schema_version")
+        for key in ("workflow_version", "execution_profile", "reviewed_tree"):
+            state.pop(key)
         self.save_state(state)
-        self.assertIn("Старое закоммиченное", self.run_task("publish", success=False).stderr)
+        self.assertIn("Завершите публикацию вручную", self.run_task("publish", success=False).stderr)
         state["phase"] = "published"
         self.save_state(state)
-        self.run_task()
-        self.assertEqual(len(self.calls()), 1)
+        self.assertIn("Draft PR уже существует", self.run_task().stdout)
+        self.assertEqual([c["stage"] for c in self.calls()], ["coding", "commit_message"])
 
     def test_failed_coding_resumes_without_replanning(self):
         self.write_card(complexity="medium")
@@ -750,7 +777,7 @@ class WorkflowTest(unittest.TestCase):
     def test_malformed_review_result_stops(self):
         self.write_card(complexity="simple")
         self.env["MALFORMED_STAGE"] = "review"
-        self.assertIn("Некорректный результат", self.run_task(success=False).stderr)
+        self.assertIn("некорректный результат review", self.run_task(success=False).stderr)
         self.assertFalse((self.root / "github-prs.json").exists())
 
     def test_setup_runs_before_planning_and_only_once(self):
@@ -764,7 +791,7 @@ class WorkflowTest(unittest.TestCase):
         self.assertEqual((Path(self.state()["worktree"]) / "local.properties").read_text(), "1")
         self.assertEqual(len(self.calls()), 3)
 
-    def test_reused_session_id_is_rejected(self):
+    def test_coding_rejects_reuse_of_planning_session(self):
         self.write_card(complexity="medium")
         self.env["FORCE_SESSION_ID"] = "same-session"
         self.assertIn("разных сессиях", self.run_task(success=False).stderr)
@@ -776,13 +803,18 @@ class WorkflowTest(unittest.TestCase):
         self.env["MUTATE_INDEX_STAGE"] = "review"
         self.assertIn("изменил исходники или index", self.run_task(success=False).stderr)
         self.assertEqual((Path(self.state()["worktree"]) / "app/name.txt").read_text(), "new name\n")
-        self.assertTrue(self.state()["cycles"][0]["requires_rerun"])
+        self.assertEqual(self.state()["requires_rerun"], "Review")
+        self.env.pop("MUTATE_INDEX_STAGE")
+        self.assertIn("--rerun", self.run_task(success=False).stderr)
+        self.assertEqual([c["stage"] for c in self.calls()], ["coding", "review"])
+        self.run_task("run", "--local-only", "--rerun")
+        self.assertEqual(self.state()["phase"], "reviewed")
 
     def test_skip_flags_work_independently(self):
         self.write_card(complexity="medium")
         self.run_task("run", "--local-only", "--skip-planning")
         self.assertEqual([c["stage"] for c in self.calls()], ["coding", "review"])
-        self.run_task("run", "--local-only", "--rerun", "--no-skip-planning", "--skip-review")
+        self.run_task("run", "--local-only", "--rerun", "--skip-review")
         self.assertEqual([c["stage"] for c in self.calls()], ["coding", "review", "planning", "coding"])
 
     def test_git_hook_changes_checked_snapshot_stops_push(self):

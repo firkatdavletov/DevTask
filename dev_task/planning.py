@@ -7,7 +7,7 @@ import subprocess
 
 from .codex import launch_codex
 from .contracts import PLANNING_SCHEMA, validate_planning
-from .errors import require
+from .errors import TaskError, require
 from .events import step, emit
 from .plan_context import continuation_context, require_planning
 from .repository import assert_worktree, readonly_snapshot
@@ -51,9 +51,14 @@ def planning_once(config, state, task_text, card_path, attempt, state_path):
             result = launch_codex(config, state, directory, "planning", prompt,
                                   PLANNING_SCHEMA, validate_planning, "read-only")
         finally:
-            assert_worktree(state)
-            require(readonly_snapshot(worktree) == snapshot,
-                    "Planning изменил исходники, новые файлы, права доступа или index. Проверьте изменения вручную.")
+            try:
+                assert_worktree(state)
+                require(readonly_snapshot(worktree) == snapshot,
+                        "Planning изменил исходники, права доступа или index. "
+                        "Проверьте изменения и выполните run --rerun.")
+            except TaskError:
+                state["requires_rerun"] = "Planning"
+                raise
         record.update(status=result["status"], result=result)
         require(result["status"] == "planned",
                 "Нужны уточнения или устранение блокеров planning: " + "; ".join(result["blockers"]))

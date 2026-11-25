@@ -32,10 +32,13 @@ def launch_codex(config, state, directory, stage, prompt, schema, validator, san
         with step(f"{STAGE_NAMES[stage]} · модель: {profile['model']} · глубина: {profile['effort']}"):
             code = execute(argv, worktree, directory / "events.jsonl", config["codex_timeout_seconds"],
                            input_text=prompt, stderr_log=directory / "codex.stderr.log")
+            record["exit_code"] = code
             require(code == 0, f"Codex завершился с кодом {code}. См. {directory / 'codex.stderr.log'}")
-        record["exit_code"] = code
         _, session_id = event_usage(directory / "events.jsonl", "running")
         if session_id:
+            if stage == "coding" and state.get("planning_status") == "planned" and state.get("planning_history"):
+                require(session_id != state["planning_history"][-1].get("session_id"),
+                        "Planning и coding должны выполняться в разных сессиях Codex.")
             state["session_id"] = session_id
         with step('Обработка результата агента'):
             result = validator(read_json(result_path))

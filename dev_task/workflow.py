@@ -95,6 +95,7 @@ def run_workflow(args: WorkflowRequest, config) -> OperationResult:
         require(args.command == "run" or state_path.exists(), "Сначала выполните run.")
 
         require(not args.continue_pr or state_path.is_file(), "Для --continue-pr нужно сохранённое состояние опубликованной задачи.")
+        selected_profile = None if state_path.is_file() else resolve_profile(config, card)
         run_dir.mkdir(parents=True, exist_ok=True)
         # проверяет Git remote и получает целевую ветку
         state = prepare(config, card, run_dir, state_path)
@@ -119,7 +120,8 @@ def run_workflow(args: WorkflowRequest, config) -> OperationResult:
                 emit("Draft PR уже существует: " + pr["url"])
                 return OperationResult(state["phase"], run_dir, assert_worktree(state), state.get("pr"))
 
-            selected_profile = resolve_profile(config, card)
+            if selected_profile is None:
+                selected_profile = resolve_profile(config, card)
             configure_cycle(config, state, selected_profile, args, run_dir, legacy_text=legacy_text_profile(config))
             migrate_state(state)
 

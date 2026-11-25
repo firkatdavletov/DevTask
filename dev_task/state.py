@@ -82,7 +82,7 @@ def configure_cycle(config, state, profile, args: RunRequest, run_dir, *, legacy
                      cycle_id=f"cycle-{time.time_ns()}", setup_completed=False, coding_started=False,
                      check_fix_attempts=0, review_fix_attempts=0, pending_check_fix=False, pending_review_fix=False,
                      review_skip_reason="--skip-review" if args.skip_review else "профиль сложности" if profile["review"] is None else None)
-        for key in ("last_check_failure", "last_error", "reviewed_tree", "review_tree", "review_result",
+        for key in ("last_check_failure", "last_error", "requires_rerun", "reviewed_tree", "review_tree", "review_result",
                     "plan_path", "plan_sha256", "planning_result", "checked_tree", "checks", "result",
                     "session_id", "commit_message", "commit_message_tree", "commit_message_issue", "commit_message_base", "cycle_outcome"):
             state.pop(key, None)
@@ -90,6 +90,8 @@ def configure_cycle(config, state, profile, args: RunRequest, run_dir, *, legacy
                                          "профиль сложности" if profile["planning"] is None else None)
         state["planning_status"] = "skipped" if state["planning_skip_reason"] else "pending"
         return
+    require(not state.get("requires_rerun"),
+            f'{state.get("requires_rerun")} изменил рабочий снимок. Проверьте изменения и выполните run --rerun.')
     previous = state.get("execution_profile")
     if state.get("commit_sha") and not previous:
         raise TaskError("Старое состояние уже закоммичено без review. Завершите публикацию вручную.")
