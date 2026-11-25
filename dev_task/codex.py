@@ -11,15 +11,15 @@ from .storage import read_json, write_json
 from .usage import STAGE_NAMES, event_usage
 
 
-def launch_codex(config, state, directory, stage, prompt, schema, validator, sandbox, *, profile=None):
+def launch_codex(config, state, directory, stage, prompt, schema, validator, sandbox):
     with step('Подготовка сессии агента'):
         worktree = assert_worktree(state)
     directory.mkdir(parents=True, exist_ok=True)
     schema_path, result_path = directory / "schema.json", directory / "result.json"
     write_json(schema_path, schema)
     (directory / "prompt.md").write_text(prompt, encoding="utf-8")
-    if profile is None:
-        profile = state["execution_profile"][stage if stage in ("planning", "review") else "coding"]
+    role = {"planning": "planning", "review": "review", "commit_message": "text"}.get(stage, "coding")
+    profile = state["execution_profile"][role]
     args = config["stage_codex_args"]["review" if sandbox == "read-only" else "coding"]
     argv = [config["codex_bin"], "exec", "--model", profile["model"],
             "-c", "model_reasoning_effort=" + profile["effort"], "--sandbox", sandbox, "--json",

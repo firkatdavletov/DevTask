@@ -8,7 +8,6 @@ import time
 from pathlib import Path
 
 from .codex import launch_codex
-from .config import DEFAULT_MODELS
 from .events import step, emit
 from .contracts import COMMIT_MESSAGE_SCHEMA, blocking_findings, validate_commit_message
 from .errors import TaskError, require
@@ -54,10 +53,9 @@ def commit_message(config, state, card, state_path):
 Не придумывай изменения, не повторяй имя ветки и не перечисляй команды проверок.
 Прочитай diff. Не меняй файлы, индекс и Git refs. Не запускай сборки, тесты, commit или push.
 """
-    profile = {"model": config.get("models", {}).get("luna", DEFAULT_MODELS["luna"]), "effort": "low"}
     try:
         result = launch_codex(config, state, directory, "commit_message", prompt,
-                              COMMIT_MESSAGE_SCHEMA, validate_commit_message, "read-only", profile=profile)
+                              COMMIT_MESSAGE_SCHEMA, validate_commit_message, "read-only")
     finally:
         assert_unchanged_checks(state, worktree, state["checked_tree"])
     message = issue + " " + result["subject"]

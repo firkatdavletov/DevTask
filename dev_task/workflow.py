@@ -8,7 +8,7 @@ import time
 from .card import read_card
 from .checks import run_steps, verify_with_fixes
 from .coding import implement
-from .config import resolve_profile
+from .config import legacy_text_profile, resolve_profile
 from .models import ISSUE_PATTERN, OperationResult, WorkflowRequest
 from .events import step, emit
 from .errors import require
@@ -120,7 +120,7 @@ def run_workflow(args: WorkflowRequest, config) -> OperationResult:
                 return OperationResult(state["phase"], run_dir, assert_worktree(state), state.get("pr"))
 
             selected_profile = resolve_profile(config, card)
-            configure_cycle(config, state, selected_profile, args, run_dir)
+            configure_cycle(config, state, selected_profile, args, run_dir, legacy_text=legacy_text_profile(config))
             migrate_state(state)
 
             state["card_sha"] = digest

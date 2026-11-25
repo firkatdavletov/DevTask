@@ -44,7 +44,8 @@ complexity: medium
 | medium | gpt-6.1-sol / medium | gpt-6.1-sol / medium | gpt-6-astra / low |
 | complex | gpt-6-astra / high | gpt-6.1-sol / high | gpt-6-astra / medium |
 
-При необходимости измените `models` или `complexity_profiles` в config.json.
+В config.json можно задать профили ролей в `agents` и переопределить их для
+конкретной сложности в `complexity_profiles`. Псевдонимы моделей задаются в `models`.
 Значение `planning: null` или `review: null` пропускает соответствующий этап.
 Модель не заменяется автоматически,
 если она недоступна.
@@ -210,8 +211,8 @@ dev-task review feature/APP-1234 --base develop --config config.json
 
 Для review достаточно `worktrees_root`, `runs_root`; `checks` и
 `github_repo` необязательны. Нужны Git и авторизованный Codex CLI, `gh` не нужен.
-Модель задаёт `review_profile`, по умолчанию `{"model": "astra", "effort": "low"}`;
-поддерживаются aliases из `models`. Codex работает в `read-only`.
+Приоритет имеет `review_profile`, затем применяется `agents.review`.
+Профиль по умолчанию — `{"model": "astra", "effort": "low"}`. Codex работает в `read-only`.
 Setup, checks и автоматические исправления не запускаются.
 
 Для непустого diff скрипт создаёт detached worktree вне основного checkout.

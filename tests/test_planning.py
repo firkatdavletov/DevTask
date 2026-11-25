@@ -64,7 +64,8 @@ class PlanningWorkflowTest(unittest.TestCase):
                 self.assertEqual(len({call["session_id"] for call in calls}), 3)
 
     def test_profile_overrides_null_and_readonly_arguments(self):
-        self.cfg.update(models={"planner": "custom-planner"}, codex_args=["--add-dir", "/tmp/gradle-cache"],
+        self.cfg.update(agents={"planning": {"model": "fallback-planner", "effort": "low"}},
+                        models={"planner": "custom-planner"}, codex_args=["--add-dir", "/tmp/gradle-cache"],
                         complexity_profiles={"medium": {"planning": {"model": "planner", "effort": "high"}}})
         self.write_config()
         self.run_task("run", "--local-only")
@@ -79,6 +80,19 @@ class PlanningWorkflowTest(unittest.TestCase):
         self.run_task("run", "--local-only", "--rerun")
         self.assertEqual([c["stage"] for c in self.calls()[before:]], ["coding", "review"])
         self.assertNotIn("plan_file", self.calls()[before])
+
+    def test_agents_respect_default_stage_skips_and_validate_unused_roles(self):
+        self.complexity("trivial")
+        self.cfg["agents"] = {
+            "planning": {"model": "planner", "effort": "high"},
+            "review": {"model": "reviewer", "effort": "invalid"},
+        }
+        self.write_config()
+        self.assertIn("agents.review.effort", self.run_task("run", "--local-only", success=False).stderr)
+        self.cfg["agents"]["review"]["effort"] = "high"
+        self.write_config()
+        self.run_task("run", "--local-only")
+        self.assertEqual(self.stages(), ["coding"])
 
     def test_skip_planning_is_persisted_and_rerun_reenables_it(self):
         self.run_task("run", "--local-only", "--skip-planning")

@@ -316,6 +316,8 @@ class WorkflowTest(unittest.TestCase):
         self.run_task(success=False)
         self.assertEqual(self.state()["phase"], "committed")
         commit = self.state()["commit_sha"]
+        self.cfg["agents"] = {"text": {"model": "next-writer", "effort": "high"}}
+        self.write_config()
         self.run_task("publish")
         self.assertEqual(self.state()["commit_sha"], commit)
         self.assertEqual(len(json.loads((self.root / "github-prs.json").read_text())), 1)

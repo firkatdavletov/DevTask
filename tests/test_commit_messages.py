@@ -60,6 +60,49 @@ class CommitMessageTest(unittest.TestCase):
         self.g(self.repo, "config", "core.hooksPath", str(hooks))
         return hook
 
+    def test_configured_profiles_reach_all_four_sessions(self):
+        self.write_card(issue="KRMA-10003", complexity="medium")
+        self.cfg["agents"] = {
+            "planning": {"model": "planner", "effort": "high"},
+            "coding": {"model": "developer", "effort": "low"},
+            "text": {"model": "writer", "effort": "medium"},
+            "review": {"model": "reviewer", "effort": "xhigh"},
+        }
+        self.write_config()
+        self.run_task("run", "--local-only")
+        self.run_task("publish")
+        actual = [(c["stage"], c["model"], c["effort"]) for c in self.calls()]
+        self.assertEqual(actual, [
+            ("planning", "planner", "model_reasoning_effort=high"),
+            ("coding", "developer", "model_reasoning_effort=low"),
+            ("review", "reviewer", "model_reasoning_effort=xhigh"),
+        ])
+        argv = self.commit_calls()[0]["argv"]
+        self.assertEqual(argv[argv.index("--model") + 1], "writer")
+        self.assertIn("model_reasoning_effort=medium", argv)
+
+    def test_publish_migrates_legacy_text_profile(self):
+        self.cfg["models"] = {"luna": "local-luna"}
+        self.write_config()
+        self.run_task("run", "--local-only")
+        state_path = next((self.root / "runs").glob("*/*/state.json"))
+        state = self.state()
+        state["execution_profile"].pop("text")
+        state_path.write_text(json.dumps(state))
+        self.run_task("publish")
+        self.assertEqual(self.state()["execution_profile"]["text"], {"model": "local-luna", "effort": "low"})
+        argv = self.commit_calls()[0]["argv"]
+        self.assertEqual(argv[argv.index("--model") + 1], "local-luna")
+
+    def test_changing_text_profile_requires_rerun_before_commit(self):
+        self.run_task("run", "--local-only")
+        self.cfg["agents"] = {"text": {"model": "next-writer", "effort": "high"}}
+        self.write_config()
+        self.assertIn("--rerun", self.run_task("publish", success=False).stderr)
+        self.run_task("run", "--rerun")
+        argv = self.commit_calls()[0]["argv"]
+        self.assertEqual(argv[argv.index("--model") + 1], "next-writer")
+
     def test_russian_subject_uses_luna_and_only_jira_number(self):
         self.cfg["models"] = {"luna": "test-luna"}
         self.cfg["codex_args"] = ["--add-dir", str(self.root / "cache")]

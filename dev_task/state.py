@@ -72,7 +72,7 @@ def archive_cycle(state, run_dir):
     state.setdefault("cycle_history", []).append(record)
 
 
-def configure_cycle(config, state, profile, args: RunRequest, run_dir):
+def configure_cycle(config, state, profile, args: RunRequest, run_dir, *, legacy_text=None):
     """Upgrade in place without adding planning after an old cycle's coding."""
     require(state.get("workflow_version", 0) <= 4, "Состояние создано более новой версией dev-task.")
     if args.rerun:
@@ -94,7 +94,11 @@ def configure_cycle(config, state, profile, args: RunRequest, run_dir):
     if state.get("commit_sha") and not previous:
         raise TaskError("Старое состояние уже закоммичено без review. Завершите публикацию вручную.")
     if previous:
+        if "text" not in previous:
+            previous = {**previous, "text": legacy_text}
         compared = profile if state.get("workflow_version", 0) >= 3 else {k: v for k, v in profile.items() if k != "planning"}
+        if state.get("commit_sha"):
+            compared = {**compared, "text": previous["text"]}
         require(previous == compared,
                 "Профиль моделей или сложность изменились. До коммита используйте run --rerun.")
         require(not args.skip_review or state.get("review_skip_reason"),
@@ -103,9 +107,10 @@ def configure_cycle(config, state, profile, args: RunRequest, run_dir):
         require(bool(previous), "Не сохранён профиль цикла. До коммита используйте run --rerun.")
         require(not args.skip_planning or state.get("planning_skip_reason"),
                 "Чтобы изменить режим planning, используйте run --rerun --skip-planning.")
+        state["execution_profile"] = previous
         return
     started = legacy_coding_started(state, run_dir)
-    state["execution_profile"] = profile
+    state["execution_profile"] = {**profile, "text": previous["text"]} if previous else profile
     state["workflow_version"] = 3
     state.setdefault("cycle_id", f"cycle-{time.time_ns()}")
     state.setdefault("review_skip_reason", "--skip-review" if args.skip_review else

@@ -123,19 +123,25 @@ class BranchReviewTest(unittest.TestCase):
     def test_real_launcher_profile_sandbox_and_invalid_json(self):
         cfg = json.loads(self.config.read_text())
         cfg.update(models={'custom': 'review-model'}, review_profile={'model': 'custom', 'effort': 'high'},
+                   agents={'review': {'model': 'agent-review-model', 'effort': 'medium'}},
                    codex_args=['--add-dir', '/tmp'])
-        self.config.write_text(json.dumps(cfg))
-        def execute(argv, cwd, log, timeout, **kwargs):
-            self.assertEqual(argv[argv.index('--model') + 1], 'review-model')
-            self.assertEqual(argv[argv.index('--sandbox') + 1], 'read-only')
-            self.assertIn('model_reasoning_effort=high', argv)
-            self.assertNotIn('--add-dir', argv)
-            Path(argv[argv.index('-o') + 1]).write_text('invalid json')
-            return 0
-        with patch('dev_task.codex.execute', side_effect=execute), patch('dev_task.sessions.subscription_snapshot', return_value={}):
-            with self.assertRaises(ValueError):
-                run_branch_review(self.args, load_config(self.config, review_only=True))
-        self.assertEqual(list((self.root / 'trees').iterdir()), [])
+        with patch('dev_task.codex.execute') as execute, patch('dev_task.sessions.subscription_snapshot', return_value={}):
+            def invalid_result(argv, cwd, log, timeout, **kwargs):
+                Path(argv[argv.index('-o') + 1]).write_text('invalid json')
+                return 0
+
+            execute.side_effect = invalid_result
+            for model, effort in (('review-model', 'high'), ('agent-review-model', 'medium')):
+                self.config.write_text(json.dumps(cfg))
+                with self.assertRaises(ValueError):
+                    run_branch_review(self.args, load_config(self.config, review_only=True))
+                argv = execute.call_args.args[0]
+                self.assertEqual(argv[argv.index('--model') + 1], model)
+                self.assertEqual(argv[argv.index('--sandbox') + 1], 'read-only')
+                self.assertIn('model_reasoning_effort=' + effort, argv)
+                self.assertNotIn('--add-dir', argv)
+                self.assertEqual(list((self.root / 'trees').iterdir()), [])
+                cfg.pop('review_profile', None)
 
     def test_blocking_findings_are_reported_without_repairs(self):
         self.review_result = {'status': 'reviewed', 'summary': 'Bug', 'blockers': [],

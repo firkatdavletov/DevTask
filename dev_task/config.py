@@ -9,6 +9,8 @@ from .storage import read_json, resolve_path
 
 
 DEFAULT_MODELS = {"luna": "gpt-6-luna", "sol": "gpt-6.1-sol", "astra": "gpt-6-astra"}
+DEFAULT_TEXT_PROFILE = {"model": "luna", "effort": "low"}
+AGENT_ROLES = ("planning", "coding", "text", "review")
 
 
 DEFAULT_PROFILES = {
@@ -72,6 +74,11 @@ def load_config(path, *, project=None, review_only=False):
     require(type(config["max_fix_iterations"]) is int and config["max_fix_iterations"] >= 0,
             "max_fix_iterations: целое число >= 0.")
     config["stage_codex_args"] = validate_codex_args(config["codex_args"])
+    agents = config.get("agents", {})
+    require(isinstance(agents, dict), "agents: нужен объект с профилями ролей.")
+    for role, value in agents.items():
+        require(role in AGENT_ROLES, f"agents.{role}: неизвестная роль.")
+        resolve_agent_profile(value, f"agents.{role}", {})
     return config
 
 
@@ -107,15 +114,34 @@ def validate_codex_args(values):
     return {"coding": coding, "review": review}
 
 
+def model_aliases(config):
+    aliases = config.get("models", {})
+    require(isinstance(aliases, dict) and all(isinstance(k, str) and isinstance(v, str) and v.strip()
+                                             for k, v in aliases.items()), "models: объект с именами моделей.")
+    return {**DEFAULT_MODELS, **aliases}
+
+
+def resolve_agent_profile(value, field, aliases):
+    require(isinstance(value, dict) and not (value.keys() - {"model", "effort"}),
+            f"{field}: нужен объект с полями model и effort.")
+    model, effort = value.get("model"), value.get("effort")
+    require(isinstance(model, str) and model.strip(), f"{field}.model: нужна непустая строка.")
+    require(effort in ("low", "medium", "high", "xhigh", "max", "ultra"),
+            f"{field}.effort: нужна допустимая глубина рассуждений.")
+    return {"model": aliases.get(model, model), "effort": effort}
+
+
+def legacy_text_profile(config):
+    return resolve_agent_profile(DEFAULT_TEXT_PROFILE, "text", model_aliases(config))
+
+
 def resolve_profile(config, card):
     complexity = card.get("complexity")
     require(isinstance(complexity, str) and complexity.strip().lower() in DEFAULT_PROFILES,
             "Карточке нужно поле complexity: trivial, simple, medium или complex.")
     complexity = complexity.strip().lower()
-    aliases = config.get("models", {})
-    require(isinstance(aliases, dict) and all(isinstance(k, str) and isinstance(v, str) and v.strip()
-                                             for k, v in aliases.items()), "models: объект с именами моделей.")
-    aliases = {**DEFAULT_MODELS, **aliases}
+    aliases = model_aliases(config)
+    agents = config.get("agents", {})
     overrides = config.get("complexity_profiles", {})
     require(isinstance(overrides, dict) and all(k in DEFAULT_PROFILES and isinstance(v, dict)
                                                  for k, v in overrides.items()),
@@ -125,22 +151,19 @@ def resolve_profile(config, card):
             "complexity_profiles: неизвестный этап.")
     result = {"complexity": complexity}
     for stage in ("planning", "coding", "review"):
-        value = chosen.get(stage, DEFAULT_PROFILES[complexity][stage])
+        default = DEFAULT_PROFILES[complexity][stage]
+        value = chosen.get(stage, agents.get(stage, default) if default is not None else None)
         require(stage != "coding" or value is not None, "Этап coding пропускать нельзя.")
         if value is None:
             result[stage] = None
             continue
-        require(isinstance(value, dict) and set(value) == {"model", "effort"}
-                and isinstance(value["model"], str) and value["model"].strip()
-                and value["effort"] in ("low", "medium", "high", "xhigh", "max", "ultra"),
-                f"{stage}: нужны model и корректный effort.")
-        result[stage] = {"model": aliases.get(value["model"], value["model"]), "effort": value["effort"]}
+        result[stage] = resolve_agent_profile(value, stage, aliases)
+    result["text"] = resolve_agent_profile(agents.get("text", DEFAULT_TEXT_PROFILE), "agents.text", aliases)
     return result
 
 
 def resolve_review_profile(config):
-    value = config.get("review_profile", {"model": "astra", "effort": "low"})
-    profile_config = {**config, "complexity_profiles": {"medium": {"review": value}}}
-    profile = resolve_profile(profile_config, {"complexity": "medium"})["review"]
-    require(profile is not None, "review_profile нельзя отключить.")
-    return profile
+    default = config.get("agents", {}).get("review", DEFAULT_PROFILES["medium"]["review"])
+    value = config.get("review_profile", default)
+    require(value is not None, "review_profile нельзя отключить.")
+    return resolve_agent_profile(value, "review_profile", model_aliases(config))

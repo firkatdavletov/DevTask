@@ -107,10 +107,17 @@ class ReviewWorkflowTest(unittest.TestCase):
         self.assertEqual(len(self.report()["quality"][0]["reviews"]), 4)
 
     def test_check_repair_after_review_fix_has_independent_limit(self):
+        self.cfg["agents"] = {"coding": {"model": "repair-model", "effort": "high"}}
+        self.write_config()
         self.env["REVIEW_ROUNDS"] = json.dumps([["P1"], []])
         self.env["CHECK_MODE"] = "review-fix-fails"
         self.run_task("run", "--local-only")
         self.assertEqual(self.stages(), ["coding", "review", "review_fix", "check_fix", "review"])
+        for call in self.calls():
+            if call["stage"] in ("coding", "review_fix", "check_fix"):
+                argv = call["argv"]
+                self.assertEqual(argv[argv.index("--model") + 1], "repair-model")
+                self.assertIn("model_reasoning_effort=high", argv)
         self.assertEqual(self.state()["check_fix_attempts"], 1)
         self.assertEqual(self.state()["review_fix_attempts"], 1)
         self.assertEqual(self.report()["stages"]["check_fix"]["session_count"], 1)

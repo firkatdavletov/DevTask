@@ -3,6 +3,12 @@
   "tasks_root": "../tasks",
   "worktrees_root": "~/.local/share/dev-task/worktrees",
   "runs_root": "~/.local/share/dev-task/runs",
+  "agents": {
+    "planning": {"model": "astra", "effort": "high"},
+    "coding": {"model": "sol", "effort": "medium"},
+    "text": {"model": "luna", "effort": "low"},
+    "review": {"model": "astra", "effort": "medium"}
+  },
   "setup": [],
   "checks": [
     {"name": "Unit tests", "argv": ["python3", "-m", "unittest", "discover", "-s", "tests"]}
