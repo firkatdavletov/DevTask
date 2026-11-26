@@ -145,6 +145,14 @@ else:
 '''
 
 
+def install_fake_commands(directory):
+    directory.mkdir()
+    for name, body in (("git", FAKE_GIT), ("gh", FAKE_GH), ("codex", FAKE_CODEX)):
+        path = directory / name
+        path.write_text("#!" + sys.executable + "\n" + textwrap.dedent(body))
+        path.chmod(0o755)
+
+
 class WorkflowTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -165,11 +173,7 @@ class WorkflowTest(unittest.TestCase):
         self.g(self.repo, "remote", "add", "origin", str(self.remote))
         self.g(self.repo, "push", "-u", "origin", "develop")
         self.bin = self.root / "bin"
-        self.bin.mkdir()
-        for name, body in (("git", FAKE_GIT), ("gh", FAKE_GH), ("codex", FAKE_CODEX)):
-            path = self.bin / name
-            path.write_text("#!" + sys.executable + "\n" + textwrap.dedent(body))
-            path.chmod(0o755)
+        install_fake_commands(self.bin)
         self.env = {**os.environ, "PATH": str(self.bin) + os.pathsep + os.environ["PATH"],
                     "REAL_GIT": REAL_GIT, "TEST_ROOT": str(self.root),
                     "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}

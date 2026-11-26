@@ -35,6 +35,19 @@ Create a Go module and `cmd/dev-task` entry point. Build a harness that runs Pyt
 
 **Acceptance** The harness runs both executables and detects a deliberately changed exit code or artifact. It does not contact real Codex or GitHub services.
 
+**Status** Complete. Go 1.25 or newer builds the preview. It returns exit status 2 for a missing command and reports that other commands are unavailable. Subtask 3 ports the CLI arguments and diagnostics.
+
+Build the preview into a separate directory and run the differential tests with the Python reference environment active.
+
+```sh
+go build -o build/dev-task-go ./cmd/dev-task
+go test ./...
+go vet ./...
+DEV_TASK_GO_BINARY="$PWD/build/dev-task-go" python3 -m unittest discover -s tests -p test_differential.py -v
+```
+
+The comparison runs each command in a fresh fixture with a local bare Git remote and the Python suite's fake Codex and GitHub commands. It compares exit status, both output streams, checkout status, refs, run files, and recorded fake calls. The Go smoke test compares missing-command behavior and checks the preview's expected diagnostic. The offline report tests use Python on both sides to verify that equivalent runs match and that deliberate changes to exit status and a saved report are detected.
+
 ### 3. Port CLI inputs and configuration
 
 **Prerequisite** Subtask 2.
