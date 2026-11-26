@@ -21,9 +21,9 @@ The native Go CLI becomes the recommended macOS and Linux installation after the
 
 **Reference** `tests/`, `README.md`, and the current Python implementation.
 
-Run `python3 -m unittest discover -s tests` with Python 3.10 or newer. Investigate the historical `WorkflowTest` mismatch documented in the README. Reconcile confirmed stale test expectations with the current reference behavior and record the reference revision and results.
+Run `python3 -m unittest discover -s tests` with Python 3.10 or newer, PyYAML from `pyproject.toml`, Git, Bash, and rsync. Include `test_workflow.WorkflowTest` in the run. Investigate any failures against the current Python behavior and record the reference revision and results.
 
-**Acceptance** The full Python suite passes, or a verified pre-existing failure is explicitly resolved before dependent migration work is accepted. The baseline revision and test command are recorded.
+**Acceptance** The full Python suite passes. The baseline revision, test command, and results are recorded below.
 
 ### 2. Bootstrap Go and differential testing
 
@@ -167,4 +167,12 @@ Run the complete parity matrix on macOS and Linux. Build and smoke-test native b
 
 ## Baseline status
 
-At roadmap creation, the baseline was not verified. The available `python3` resolved to Python 3.9.6 and Go was absent from `PATH`. Subtask 1 establishes the supported Python baseline before migration begins.
+The reference source and test revision is `62c9577cd24a2aa6705fed3bc36c250112481b1b`. The reference run uses Python 3.12.14 and PyYAML 6.0.3 on macOS 15.6.1 (arm64).
+
+```sh
+GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 python3 -m unittest discover -s tests -v
+```
+
+**Result** All 219 tests passed. An earlier run hit a transient permission error in the fake Codex app-server during PR continuation. The affected test passed on its own and in the full rerun.
+
+Commit `6fc1081b34b3a8f156e3fe726ec702eebead9e77` reconciled the historical `WorkflowTest` expectations with the current Python workflow, including the persisted state and report formats. The reference run includes that class.

@@ -354,10 +354,10 @@ python3 -m unittest discover -s tests -p test_architecture.py -v
 python3 -m unittest discover -s tests -p test_cli.py -v
 ```
 
-Полный набор: `python3 -m unittest discover -s tests`. Исторический класс
-`test_workflow.WorkflowTest` ожидает прежний формат состояния и отчётов;
-его несовместимость воспроизводится и на исходном HEAD. Остальные тесты
-используют актуальные контракты, в том числе `test_api.py`.
+Для запуска полного набора на Python 3.10+ используйте
+`python3 -m unittest discover -s tests`. В него входят интеграционные тесты
+`test_workflow.WorkflowTest` и тесты публичного API в `test_api.py`.
+Результат базового прогона зафиксирован в [плане миграции на Go](docs/migration/README.md#baseline-status).
 
 ## Окружение команд
 
