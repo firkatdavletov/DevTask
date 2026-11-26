@@ -4,4 +4,4 @@
 
 See [README.md](README.md) for setup and CLI usage, [WORKFLOW.md](WORKFLOW.md) for the task lifecycle, and [examples/](examples/) for sample cards and configuration.
 
-See [PYTHON_TO_GO_MIGRATION_RULES](docs/PYTHON_TO_GO_MIGRATION_RULES.md) for project migration to GO
+Follow the rules defined in [PYTHON_TO_GO_MIGRATION_RULES](docs/PYTHON_TO_GO_MIGRATION_RULES.md) when migrating the project from Python to Go.
